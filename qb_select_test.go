@@ -1650,3 +1650,354 @@ func TestSelectWithPointerToMap(t *testing.T) {
 	assert.Contains(t, err.Error(), "Select: destination must be a pointer to a struct or slice")
 	assert.Contains(t, err.Error(), "got pointer to map")
 }
+
+// ========== Tests with PostgreSQL-style placeholders ==========
+
+func TestSimpleSelectWithPostgreSQLPlaceholders(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		Columns("id", "name", "email").
+		Where("status = ?", "active")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `email` FROM `users` WHERE status = $1", sql)
+	assert.Len(t, params, 1)
+	assert.Equal(t, "active", params[0])
+}
+
+func TestSelectWithMultipleWherePostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		Columns("id", "name", "email").
+		Where("status = ?", "active").
+		Where("age >= ?", 18)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `email` FROM `users` WHERE status = $1 AND age >= $2", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, "active", params[0])
+	assert.Equal(t, 18, params[1])
+}
+
+func TestSelectWithLimitOffsetPostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		Columns("id", "name").
+		Where("status = ?", "active").
+		OrderBy("created_at DESC").
+		Limit(10).
+		Offset(20)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name` FROM `users` WHERE status = $1 ORDER BY `created_at` DESC LIMIT $2 OFFSET $3", sql)
+	assert.Len(t, params, 3)
+	assert.Equal(t, "active", params[0])
+	assert.Equal(t, 10, params[1])
+	assert.Equal(t, 20, params[2])
+}
+
+func TestSelectWithInExpressionPostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("orders").
+		WithConfig(config).
+		Columns("id", "customer_id", "status").
+		Where(sqlc.Col("status").In("completed", "shipped"))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `customer_id`, `status` FROM `orders` WHERE `status` IN ($1, $2)", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, "completed", params[0])
+	assert.Equal(t, "shipped", params[1])
+}
+
+func TestSelectWithBetweenPostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("products").
+		WithConfig(config).
+		Columns("id", "name", "price").
+		Where(sqlc.Col("price").Between(10.0, 99.99))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `price` FROM `products` WHERE `price` BETWEEN $1 AND $2", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, 10.0, params[0])
+	assert.Equal(t, 99.99, params[1])
+}
+
+func TestComplexQueryWithPostgreSQLPlaceholders(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("orders").
+		WithConfig(config).
+		Columns(
+			sqlc.Col("customer_id"),
+			sqlc.Col("status"),
+			sqlc.Col("*").Count().As("order_count"),
+			sqlc.Col("amount").Sum().As("total_amount"),
+			sqlc.Col("amount").Avg().As("avg_amount"),
+		).
+		Where("created_at >= ?", "2024-01-01").
+		Where("status IN (?, ?)", "completed", "shipped").
+		GroupBy("customer_id", "status").
+		Having("COUNT(*) >= ?", 5).
+		Having("SUM(amount) > ?", 10000).
+		OrderBy(sqlc.Col("total_amount").Desc()).
+		Limit(100)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `customer_id`, `status`, COUNT(*) AS order_count, SUM(`amount`) AS total_amount, AVG(`amount`) AS avg_amount FROM `orders` WHERE created_at >= $1 AND status IN ($2, $3) GROUP BY `customer_id`, `status` HAVING COUNT(*) >= $4 AND SUM(amount) > $5 ORDER BY `total_amount` DESC LIMIT $6", sql)
+	assert.Len(t, params, 6)
+	assert.Equal(t, "2024-01-01", params[0])
+	assert.Equal(t, "completed", params[1])
+	assert.Equal(t, "shipped", params[2])
+	assert.Equal(t, 5, params[3])
+	assert.Equal(t, 10000, params[4])
+	assert.Equal(t, 100, params[5])
+}
+
+func TestSelectWithAndOrExpressionsPostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		Columns("id", "name").
+		Where(sqlc.Or(
+			sqlc.And(
+				sqlc.Col("status").Eq("active"),
+				sqlc.Col("age").Gte(18),
+			),
+			sqlc.And(
+				sqlc.Col("status").Eq("premium"),
+				sqlc.Col("age").Gte(21),
+			),
+		))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name` FROM `users` WHERE ((`status` = $1 AND `age` >= $2) OR (`status` = $3 AND `age` >= $4))", sql)
+	assert.Len(t, params, 4)
+	assert.Equal(t, "active", params[0])
+	assert.Equal(t, 18, params[1])
+	assert.Equal(t, "premium", params[2])
+	assert.Equal(t, 21, params[3])
+}
+
+func TestSelectWithComplexLogicalExpressionsPostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("orders").
+		WithConfig(config).
+		Columns("id", "amount").
+		Where(sqlc.And(
+			sqlc.Col("status").In("completed", "shipped"),
+			sqlc.Not(sqlc.Or(
+				sqlc.Col("amount").Lt(10),
+				sqlc.Col("discount").Gt(50),
+			)),
+		))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `amount` FROM `orders` WHERE (`status` IN ($1, $2) AND NOT ((`amount` < $3 OR `discount` > $4)))", sql)
+	assert.Len(t, params, 4)
+	assert.Equal(t, "completed", params[0])
+	assert.Equal(t, "shipped", params[1])
+	assert.Equal(t, 10, params[2])
+	assert.Equal(t, 50, params[3])
+}
+
+func TestSelectWithEqMapPostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		Columns("id", "name").
+		Where(sqlc.Eq{
+			"status": "active",
+			"age":    21,
+			"role":   "admin",
+		})
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	// Keys are sorted alphabetically: age, role, status
+	assert.Equal(t, "SELECT `id`, `name` FROM `users` WHERE (`age` = $1 AND `role` = $2 AND `status` = $3)", sql)
+	assert.Equal(t, []any{21, "admin", "active"}, params)
+}
+
+// ========== Tests with Oracle-style placeholders ==========
+
+func TestSimpleSelectWithOraclePlaceholders(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: ":",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		Columns("id", "name", "email").
+		Where("status = ?", "active")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `email` FROM `users` WHERE status = :1", sql)
+	assert.Len(t, params, 1)
+	assert.Equal(t, "active", params[0])
+}
+
+func TestComplexQueryWithOraclePlaceholders(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: ":",
+	}
+
+	q := sqlc.From("orders").
+		WithConfig(config).
+		Columns("id", "customer_id", "amount").
+		Where("created_at >= ?", "2024-01-01").
+		Where(sqlc.Col("status").In("completed", "shipped")).
+		Where(sqlc.Col("amount").Gt(100)).
+		Limit(50)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `customer_id`, `amount` FROM `orders` WHERE created_at >= :1 AND `status` IN (:2, :3) AND `amount` > :4 LIMIT :5", sql)
+	assert.Len(t, params, 5)
+	assert.Equal(t, "2024-01-01", params[0])
+	assert.Equal(t, "completed", params[1])
+	assert.Equal(t, "shipped", params[2])
+	assert.Equal(t, 100, params[3])
+	assert.Equal(t, 50, params[4])
+}
+
+// ========== Tests for config immutability ==========
+
+func TestConfigImmutability(t *testing.T) {
+	pgConfig := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	base := sqlc.From("users").Columns("id", "name")
+
+	q1 := base.WithConfig(pgConfig).Where("status = ?", "active")
+	q2 := base.Where("status = ?", "inactive")
+
+	sql1, params1, err1 := q1.ToSql()
+	require.NoError(t, err1)
+
+	sql2, params2, err2 := q2.ToSql()
+	require.NoError(t, err2)
+
+	// q1 should use PostgreSQL placeholders
+	assert.Equal(t, "SELECT `id`, `name` FROM `users` WHERE status = $1", sql1)
+	assert.Equal(t, []any{"active"}, params1)
+
+	// q2 should use default ? placeholders
+	assert.Equal(t, "SELECT `id`, `name` FROM `users` WHERE status = ?", sql2)
+	assert.Equal(t, []any{"inactive"}, params2)
+}
+
+func TestConfigWithHavingPostgreSQL(t *testing.T) {
+	config := &sqlc.Config{
+		StructTag:   "db",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("orders").
+		WithConfig(config).
+		Columns("user_id", "COUNT(*) as count", "SUM(amount) as total").
+		Where("status = ?", "completed").
+		GroupBy("user_id").
+		Having(sqlc.And(
+			sqlc.Col("*").Count().Gt(5),
+			sqlc.Col("amount").Sum().Gte(1000),
+		)).
+		Limit(20)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `user_id`, `COUNT(*) as count`, `SUM(amount) as total` FROM `orders` WHERE status = $1 GROUP BY `user_id` HAVING (COUNT(*) > $2 AND SUM(`amount`) >= $3) LIMIT $4", sql)
+	assert.Len(t, params, 4)
+	assert.Equal(t, "completed", params[0])
+	assert.Equal(t, 5, params[1])
+	assert.Equal(t, 1000, params[2])
+	assert.Equal(t, 20, params[3])
+}
+
+func TestConfigWithCustomStructTag(t *testing.T) {
+	type UserJSON struct {
+		ID    int    `json:"id"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+
+	config := &sqlc.Config{
+		StructTag:   "json",
+		Placeholder: "$",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		ForType(UserJSON{}).
+		Where("status = ?", "active")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `email` FROM `users` WHERE status = $1", sql)
+	assert.Equal(t, []any{"active"}, params)
+}

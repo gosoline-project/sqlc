@@ -18,6 +18,7 @@ type (
 type SqlerWhere struct {
 	clauses []string
 	params  []any
+	config  *Config
 	err     error
 }
 
@@ -26,12 +27,29 @@ func NewSqlerWhere() *SqlerWhere {
 	return &SqlerWhere{
 		clauses: []string{},
 		params:  []any{},
+		config:  DefaultConfig(),
 	}
 }
 
 // IsEmpty returns true if no WHERE conditions have been added.
 func (s *SqlerWhere) IsEmpty() bool {
 	return len(s.clauses) == 0
+}
+
+// WithConfig sets the config for placeholder formatting and struct tag reading.
+// Returns the same SqlerWhere instance for method chaining.
+//
+// Example:
+//
+//	config := &Config{Placeholder: "$"}
+//	sqlerWhere := NewSqlerWhere()
+//	sqlerWhere.WithConfig(config).Where("status = ?", "active")
+//	sql, params, err := sqlerWhere.ToSql()
+//	// sql: "status = $1"
+//	// params: []any{"active"}
+func (s *SqlerWhere) WithConfig(config *Config) *SqlerWhere {
+	s.config = config
+	return s
 }
 
 // Where adds a WHERE condition to the query.
@@ -103,6 +121,7 @@ func (s *SqlerWhere) Where(condition any, params ...any) *SqlerWhere {
 // ToSql generates the WHERE clause SQL fragment and parameter list.
 // Returns the WHERE clause (without the "WHERE" keyword), parameters, and any error encountered.
 // If there are no where clauses, it returns an empty string for the query.
+// Uses the configured placeholder format (set via WithConfig).
 //
 // Example:
 //
@@ -111,7 +130,22 @@ func (s *SqlerWhere) Where(condition any, params ...any) *SqlerWhere {
 //	sql, params, err := sqlerWhere.ToSql()
 //	// sql: "status = ? AND age > ?"
 //	// params: []any{"active", 18}
+//
+// With custom config:
+//
+//	config := &Config{Placeholder: "$"}
+//	sqlerWhere := NewSqlerWhere()
+//	sqlerWhere.WithConfig(config).Where("status = ?", "active").Where("age > ?", 18)
+//	sql, params, err := sqlerWhere.ToSql()
+//	// sql: "status = $1 AND age > $2"
+//	// params: []any{"active", 18}
 func (s *SqlerWhere) ToSql() (query string, params []any, err error) {
+	return s.toSqlWithStartIndex(1)
+}
+
+// toSqlWithStartIndex generates the WHERE clause SQL fragment with a custom starting parameter index.
+// This is used internally by query builders to maintain parameter index continuity across multiple clauses.
+func (s *SqlerWhere) toSqlWithStartIndex(startIndex int) (query string, params []any, err error) {
 	if s.err != nil {
 		return "", nil, s.err
 	}
@@ -120,7 +154,23 @@ func (s *SqlerWhere) ToSql() (query string, params []any, err error) {
 		return "", []any{}, nil
 	}
 
-	return strings.Join(s.clauses, " AND "), s.params, nil
+	sql := strings.Join(s.clauses, " AND ")
+
+	// If using default "?" placeholder, no need to replace
+	if s.config.Placeholder == "?" {
+		return sql, s.params, nil
+	}
+
+	// Replace all "?" placeholders with numbered placeholders
+	paramIndex := startIndex
+	for i := 0; i < len(s.params); i++ {
+		placeholder := s.config.PlaceholderFormat(paramIndex)
+		// Replace first occurrence of "?"
+		sql = strings.Replace(sql, "?", placeholder, 1)
+		paramIndex++
+	}
+
+	return sql, s.params, nil
 }
 
 // SqlerGroupBy handles GROUP BY clause construction for SQL queries.
@@ -199,6 +249,7 @@ func (s *SqlerGroupBy) ToSql() (query string, err error) {
 type SqlerHaving struct {
 	clauses []string
 	params  []any
+	config  *Config
 	err     error
 }
 
@@ -207,12 +258,29 @@ func NewSqlerHaving() *SqlerHaving {
 	return &SqlerHaving{
 		clauses: []string{},
 		params:  []any{},
+		config:  DefaultConfig(),
 	}
 }
 
 // IsEmpty returns true if no HAVING conditions have been added.
 func (s *SqlerHaving) IsEmpty() bool {
 	return len(s.clauses) == 0
+}
+
+// WithConfig sets the config for placeholder formatting and struct tag reading.
+// Returns the same SqlerHaving instance for method chaining.
+//
+// Example:
+//
+//	config := &Config{Placeholder: "$"}
+//	sqlerHaving := NewSqlerHaving()
+//	sqlerHaving.WithConfig(config).Having("COUNT(*) > ?", 10)
+//	sql, params, err := sqlerHaving.ToSql()
+//	// sql: "COUNT(*) > $1"
+//	// params: []any{10}
+func (s *SqlerHaving) WithConfig(config *Config) *SqlerHaving {
+	s.config = config
+	return s
 }
 
 // Having adds a HAVING condition to the query (used with GROUP BY).
@@ -227,8 +295,8 @@ func (s *SqlerHaving) IsEmpty() bool {
 //
 //	Having("COUNT(*) > ?", 10)                       // HAVING COUNT(*) > ?
 //	Having("SUM(amount) > ?", 1000)                  // HAVING SUM(amount) > ?
-//	Having(Col("COUNT(*)").Gt(10))                   // HAVING COUNT(*) > ?
-//	Having(And(Col("COUNT(*)").Gt(5), Col("SUM(amount)").Gt(1000))) // HAVING (COUNT(*) > ? AND SUM(amount) > ?)
+//	Having(Col("*").Count().Gt(10))                  // HAVING COUNT(*) > ?
+//	Having(And(Col("*").Count().Gt(5), Col("amount").Sum().Gt(1000))) // HAVING (COUNT(*) > ? AND SUM(`amount`) > ?)
 func (s *SqlerHaving) Having(condition any, params ...any) *SqlerHaving {
 	switch v := condition.(type) {
 	case string:
@@ -253,6 +321,7 @@ func (s *SqlerHaving) Having(condition any, params ...any) *SqlerHaving {
 // ToSql generates the HAVING clause SQL fragment and parameter list.
 // Returns the HAVING clause (without the "HAVING" keyword), parameters, and any error encountered.
 // If there are no having clauses, it returns an empty string for the query.
+// Uses the configured placeholder format (set via WithConfig).
 //
 // Example:
 //
@@ -261,7 +330,22 @@ func (s *SqlerHaving) Having(condition any, params ...any) *SqlerHaving {
 //	sql, params, err := sqlerHaving.ToSql()
 //	// sql: "COUNT(*) > ? AND SUM(amount) > ?"
 //	// params: []any{10, 1000}
+//
+// With custom config:
+//
+//	config := &Config{Placeholder: "$"}
+//	sqlerHaving := NewSqlerHaving()
+//	sqlerHaving.WithConfig(config).Having("COUNT(*) > ?", 10).Having("SUM(amount) > ?", 1000)
+//	sql, params, err := sqlerHaving.ToSql()
+//	// sql: "COUNT(*) > $1 AND SUM(amount) > $2"
+//	// params: []any{10, 1000}
 func (s *SqlerHaving) ToSql() (query string, params []any, err error) {
+	return s.toSqlWithStartIndex(1)
+}
+
+// toSqlWithStartIndex generates the HAVING clause SQL fragment with a custom starting parameter index.
+// This is used internally by query builders to maintain parameter index continuity across multiple clauses.
+func (s *SqlerHaving) toSqlWithStartIndex(startIndex int) (query string, params []any, err error) {
 	if s.err != nil {
 		return "", nil, s.err
 	}
@@ -270,7 +354,23 @@ func (s *SqlerHaving) ToSql() (query string, params []any, err error) {
 		return "", []any{}, nil
 	}
 
-	return strings.Join(s.clauses, " AND "), s.params, nil
+	sql := strings.Join(s.clauses, " AND ")
+
+	// If using default "?" placeholder, no need to replace
+	if s.config.Placeholder == "?" {
+		return sql, s.params, nil
+	}
+
+	// Replace all "?" placeholders with numbered placeholders
+	paramIndex := startIndex
+	for i := 0; i < len(s.params); i++ {
+		placeholder := s.config.PlaceholderFormat(paramIndex)
+		// Replace first occurrence of "?"
+		sql = strings.Replace(sql, "?", placeholder, 1)
+		paramIndex++
+	}
+
+	return sql, s.params, nil
 }
 
 // SqlerOrderBy handles ORDER BY clause construction for SQL queries.

@@ -86,6 +86,7 @@ type InsertQueryBuilder struct {
 	ignore      bool             // Whether to use IGNORE modifier
 	priority    string           // Priority modifier: "", "LOW_PRIORITY", "HIGH_PRIORITY", "DELAYED"
 	onDuplicate []Assignment     // ON DUPLICATE KEY UPDATE assignments
+	config      *Config          // Configuration for struct tags and placeholders
 	err         error
 }
 
@@ -102,6 +103,7 @@ func Into(table string) *InsertQueryBuilder {
 		columns: []string{},
 		rows:    [][]any{},
 		mode:    "INSERT", // Default to INSERT mode
+		config:  DefaultConfig(),
 	}
 }
 
@@ -120,6 +122,7 @@ func (q *InsertQueryBuilder) copyQuery() *InsertQueryBuilder {
 		ignore:      q.ignore,
 		priority:    q.priority,
 		onDuplicate: append([]Assignment{}, q.onDuplicate...),
+		config:      q.config,
 		err:         q.err,
 	}
 
@@ -143,6 +146,20 @@ func (q *InsertQueryBuilder) copyQuery() *InsertQueryBuilder {
 func (q *InsertQueryBuilder) WithClient(client Querier) *InsertQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.client = client
+
+	return newQuery
+}
+
+// WithConfig sets a custom configuration for struct tags and placeholders.
+// Returns a new query builder with the specified configuration.
+//
+// Example:
+//
+//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	query := Into("users").WithConfig(config).Records(user)
+func (q *InsertQueryBuilder) WithConfig(config *Config) *InsertQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.config = config
 
 	return newQuery
 }
@@ -474,7 +491,7 @@ func (q *InsertQueryBuilder) Records(records ...any) *InsertQueryBuilder {
 
 	// Process first element to get tags and set columns if needed
 	firstElem := flattened[0]
-	tags := refl.GetTags(firstElem, dbStructTag)
+	tags := refl.GetTags(firstElem, q.config.StructTag)
 	if len(tags) == 0 {
 		newQuery.err = errors.New("records have no db tags")
 
@@ -682,7 +699,7 @@ func (q *InsertQueryBuilder) buildNamedSqlForMaps(sql *strings.Builder) (query s
 // buildNamedSqlForRecords builds the named SQL for record-based inserts.
 func (q *InsertQueryBuilder) buildNamedSqlForRecords(sql *strings.Builder) (query string, params []any, err error) {
 	// Get the unquoted column names for named parameters
-	tags := refl.GetTags(q.records[0], dbStructTag)
+	tags := refl.GetTags(q.records[0], q.config.StructTag)
 	namedParams := make([]string, len(tags))
 	for i, tag := range tags {
 		namedParams[i] = ":" + tag
@@ -808,7 +825,7 @@ func (q *InsertQueryBuilder) Exec(ctx context.Context) (Result, error) {
 // extractValuesFromStruct extracts field values from a struct in the order specified by tags.
 // It handles both struct values and pointers to structs.
 // Uses mapx.Struct.Read() for simplified struct field extraction.
-func extractValuesFromStruct(record any, tags []string) (values []any, err error) {
+func extractValuesFromStruct(record any, tags []string, structTag string) (values []any, err error) {
 	var (
 		structReader *mapx.Struct
 		fieldMap     *mapx.MapX
@@ -834,7 +851,7 @@ func extractValuesFromStruct(record any, tags []string) (values []any, err error
 
 	// Use mapx.Struct to read the struct fields
 	structReader, err = mapx.NewStruct(ptr, &mapx.StructSettings{
-		FieldTag: dbStructTag,
+		FieldTag: structTag,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not create struct reader: %w", err)
@@ -897,11 +914,11 @@ func (q *InsertQueryBuilder) extractValuesFromMaps() error {
 // extractValuesFromRecords extracts values from all records and appends them to q.rows.
 func (q *InsertQueryBuilder) extractValuesFromRecords() error {
 	// Get tags from first record
-	tags := refl.GetTags(q.records[0], dbStructTag)
+	tags := refl.GetTags(q.records[0], q.config.StructTag)
 
 	// Extract values from all records
 	for i, record := range q.records {
-		values, err := extractValuesFromStruct(record, tags)
+		values, err := extractValuesFromStruct(record, tags, q.config.StructTag)
 		if err != nil {
 			return fmt.Errorf("could not extract values from record %d: %w", i, err)
 		}
@@ -920,6 +937,7 @@ func (q *InsertQueryBuilder) extractValuesFromRecords() error {
 // buildInsertSql builds the final INSERT SQL query string with positional parameters.
 func (q *InsertQueryBuilder) buildInsertSql() (query string, params []any, err error) {
 	params = []any{}
+	paramIndex := 0 // Track parameter index for numbered placeholders (0-based)
 
 	var sql strings.Builder
 
@@ -940,14 +958,13 @@ func (q *InsertQueryBuilder) buildInsertSql() (query string, params []any, err e
 
 	// Build placeholders for each row
 	valueClauses := make([]string, len(q.rows))
-	placeholders := make([]string, len(q.columns))
-	for i := range placeholders {
-		placeholders[i] = "?"
-	}
-	placeholderStr := "(" + strings.Join(placeholders, ", ") + ")"
-
-	for i, row := range q.rows {
-		valueClauses[i] = placeholderStr
+	for rowIdx, row := range q.rows {
+		placeholders := make([]string, len(q.columns))
+		for i := range placeholders {
+			placeholders[i] = q.config.PlaceholderFormat(paramIndex)
+			paramIndex++
+		}
+		valueClauses[rowIdx] = "(" + strings.Join(placeholders, ", ") + ")"
 		params = append(params, row...)
 	}
 
@@ -955,7 +972,7 @@ func (q *InsertQueryBuilder) buildInsertSql() (query string, params []any, err e
 
 	// ON DUPLICATE KEY UPDATE clause
 	if len(q.onDuplicate) > 0 {
-		duplicateClause, duplicateParams, err := q.buildOnDuplicateClause()
+		duplicateClause, duplicateParams, err := q.buildOnDuplicateClause(paramIndex)
 		if err != nil {
 			return "", nil, err
 		}
@@ -996,7 +1013,7 @@ func (q *InsertQueryBuilder) buildInsertPrefix() (string, error) {
 
 // buildOnDuplicateClause builds the ON DUPLICATE KEY UPDATE clause.
 // Returns the clause string and any additional parameters.
-func (q *InsertQueryBuilder) buildOnDuplicateClause() (clause string, params []any, err error) {
+func (q *InsertQueryBuilder) buildOnDuplicateClause(paramIndex int) (clause string, params []any, err error) {
 	if len(q.onDuplicate) == 0 {
 		return "", nil, nil
 	}
@@ -1011,8 +1028,9 @@ func (q *InsertQueryBuilder) buildOnDuplicateClause() (clause string, params []a
 			parts = append(parts, fmt.Sprintf("%s = %v", quotedCol, assignment.Value))
 		} else {
 			// Value - use placeholder
-			parts = append(parts, fmt.Sprintf("%s = ?", quotedCol))
+			parts = append(parts, fmt.Sprintf("%s = %s", quotedCol, q.config.PlaceholderFormat(paramIndex)))
 			params = append(params, assignment.Value)
+			paramIndex++
 		}
 	}
 

@@ -295,82 +295,83 @@ func TestSqlerHavingWithMultipleStringConditions(t *testing.T) {
 
 func TestSqlerHavingWithExpression(t *testing.T) {
 	sqlerHaving := sqlc.NewSqlerHaving()
-	sqlerHaving.Having(sqlc.Col("COUNT(*)").Gt(10))
+	sqlerHaving.Having(sqlc.Col("*").Count().Gt(10))
 
 	sql, params, err := sqlerHaving.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "`COUNT(*)` > ?", sql)
+	assert.Equal(t, "COUNT(*) > ?", sql)
 	assert.Equal(t, []any{10}, params)
 }
 
 func TestSqlerHavingWithMultipleExpressions(t *testing.T) {
 	sqlerHaving := sqlc.NewSqlerHaving()
-	sqlerHaving.Having(sqlc.Col("COUNT(*)").Gt(10)).
-		Having(sqlc.Col("SUM(amount)").Gt(1000))
+	sqlerHaving.Having(sqlc.Col("*").Count().Gt(10)).
+		Having(sqlc.Col("amount").Sum().Gt(1000))
 
 	sql, params, err := sqlerHaving.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "`COUNT(*)` > ? AND `SUM(amount)` > ?", sql)
+	assert.Equal(t, "COUNT(*) > ? AND SUM(`amount`) > ?", sql)
 	assert.Equal(t, []any{10, 1000}, params)
 }
 
 func TestSqlerHavingWithMixedConditions(t *testing.T) {
 	sqlerHaving := sqlc.NewSqlerHaving()
 	sqlerHaving.Having("COUNT(*) > ?", 5).
-		Having(sqlc.Col("SUM(amount)").Gte(500)).
-		Having(sqlc.Col("AVG(price)").Lt(100))
+		Having(sqlc.Col("amount").Sum().Gte(500)).
+		Having(sqlc.Col("amount").Sum().Gte(500)).
+		Having(sqlc.Col("price").Avg().Lt(100))
 
 	sql, params, err := sqlerHaving.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "COUNT(*) > ? AND `SUM(amount)` >= ? AND `AVG(price)` < ?", sql)
-	assert.Equal(t, []any{5, 500, 100}, params)
+	assert.Equal(t, "COUNT(*) > ? AND SUM(`amount`) >= ? AND SUM(`amount`) >= ? AND AVG(`price`) < ?", sql)
+	assert.Equal(t, []any{5, 500, 500, 100}, params)
 }
 
 func TestSqlerHavingWithAndExpression(t *testing.T) {
 	sqlerHaving := sqlc.NewSqlerHaving()
 	sqlerHaving.Having(sqlc.And(
-		sqlc.Col("COUNT(*)").Gt(10),
-		sqlc.Col("SUM(amount)").Gt(1000),
+		sqlc.Col("*").Count().Gt(10),
+		sqlc.Col("amount").Sum().Gt(1000),
 	))
 
 	sql, params, err := sqlerHaving.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "(`COUNT(*)` > ? AND `SUM(amount)` > ?)", sql)
+	assert.Equal(t, "(COUNT(*) > ? AND SUM(`amount`) > ?)", sql)
 	assert.Equal(t, []any{10, 1000}, params)
 }
 
 func TestSqlerHavingWithOrExpression(t *testing.T) {
 	sqlerHaving := sqlc.NewSqlerHaving()
 	sqlerHaving.Having(sqlc.Or(
-		sqlc.Col("SUM(amount)").Gt(1000),
-		sqlc.Col("AVG(price)").Lt(50),
+		sqlc.Col("amount").Sum().Gt(1000),
+		sqlc.Col("price").Avg().Lt(50),
 	))
 
 	sql, params, err := sqlerHaving.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "(`SUM(amount)` > ? OR `AVG(price)` < ?)", sql)
+	assert.Equal(t, "(SUM(`amount`) > ? OR AVG(`price`) < ?)", sql)
 	assert.Equal(t, []any{1000, 50}, params)
 }
 
 func TestSqlerHavingWithComplexExpression(t *testing.T) {
 	sqlerHaving := sqlc.NewSqlerHaving()
 	sqlerHaving.Having(sqlc.And(
-		sqlc.Col("COUNT(*)").Gt(10),
+		sqlc.Col("*").Count().Gt(10),
 		sqlc.Or(
-			sqlc.Col("SUM(amount)").Gt(1000),
-			sqlc.Col("AVG(price)").Lt(50),
+			sqlc.Col("amount").Sum().Gt(1000),
+			sqlc.Col("price").Avg().Lt(50),
 		),
 	))
 
 	sql, params, err := sqlerHaving.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "(`COUNT(*)` > ? AND (`SUM(amount)` > ? OR `AVG(price)` < ?))", sql)
+	assert.Equal(t, "(COUNT(*) > ? AND (SUM(`amount`) > ? OR AVG(`price`) < ?))", sql)
 	assert.Equal(t, []any{10, 1000, 50}, params)
 }
 
@@ -497,4 +498,80 @@ func TestSqlerOrderByEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "", sql)
+}
+
+// TestSqlerHavingProperAggregateUsage demonstrates the correct way to use aggregate functions
+func TestSqlerHavingProperAggregateUsage(t *testing.T) {
+	t.Run("COUNT(*) using Col(\"*\").Count()", func(t *testing.T) {
+		sqlerHaving := sqlc.NewSqlerHaving()
+		sqlerHaving.Having(sqlc.Col("*").Count().Gt(10))
+
+		sql, params, err := sqlerHaving.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, "COUNT(*) > ?", sql)
+		assert.Equal(t, []any{10}, params)
+	})
+
+	t.Run("SUM(column) using Col(\"column\").Sum()", func(t *testing.T) {
+		sqlerHaving := sqlc.NewSqlerHaving()
+		sqlerHaving.Having(sqlc.Col("amount").Sum().Gte(1000))
+
+		sql, params, err := sqlerHaving.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, "SUM(`amount`) >= ?", sql)
+		assert.Equal(t, []any{1000}, params)
+	})
+
+	t.Run("AVG(column) using Col(\"column\").Avg()", func(t *testing.T) {
+		sqlerHaving := sqlc.NewSqlerHaving()
+		sqlerHaving.Having(sqlc.Col("rating").Avg().Gt(4.5))
+
+		sql, params, err := sqlerHaving.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, "AVG(`rating`) > ?", sql)
+		assert.Equal(t, []any{4.5}, params)
+	})
+
+	t.Run("MAX(column) using Col(\"column\").Max()", func(t *testing.T) {
+		sqlerHaving := sqlc.NewSqlerHaving()
+		sqlerHaving.Having(sqlc.Col("price").Max().Lt(100))
+
+		sql, params, err := sqlerHaving.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, "MAX(`price`) < ?", sql)
+		assert.Equal(t, []any{100}, params)
+	})
+
+	t.Run("MIN(column) using Col(\"column\").Min()", func(t *testing.T) {
+		sqlerHaving := sqlc.NewSqlerHaving()
+		sqlerHaving.Having(sqlc.Col("quantity").Min().Gte(1))
+
+		sql, params, err := sqlerHaving.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, "MIN(`quantity`) >= ?", sql)
+		assert.Equal(t, []any{1}, params)
+	})
+
+	t.Run("Complex expression with multiple aggregates", func(t *testing.T) {
+		sqlerHaving := sqlc.NewSqlerHaving()
+		sqlerHaving.Having(sqlc.And(
+			sqlc.Col("*").Count().Gt(10),
+			sqlc.Col("amount").Sum().Gte(1000),
+			sqlc.Or(
+				sqlc.Col("price").Avg().Lt(50),
+				sqlc.Col("discount").Max().Gt(20),
+			),
+		))
+
+		sql, params, err := sqlerHaving.ToSql()
+		require.NoError(t, err)
+
+		assert.Equal(t, "(COUNT(*) > ? AND SUM(`amount`) >= ? AND (AVG(`price`) < ? OR MAX(`discount`) > ?))", sql)
+		assert.Equal(t, []any{10, 1000, 50, 20}, params)
+	})
 }

@@ -39,6 +39,7 @@ type DeleteQueryBuilder struct {
 	sqlerWhere   *SqlerWhere
 	sqlerOrderBy *SqlerOrderBy
 	limitValue   *int
+	config       *Config // Configuration for struct tags and placeholders
 	err          error
 }
 
@@ -54,6 +55,7 @@ func Delete(table string) *DeleteQueryBuilder {
 		table:        table,
 		sqlerWhere:   NewSqlerWhere(),
 		sqlerOrderBy: NewSqlerOrderBy(),
+		config:       DefaultConfig(),
 	}
 }
 
@@ -65,6 +67,7 @@ func (q *DeleteQueryBuilder) copyQuery() *DeleteQueryBuilder {
 	newSqlerWhere := &SqlerWhere{
 		clauses: append([]string{}, q.sqlerWhere.clauses...),
 		params:  append([]any{}, q.sqlerWhere.params...),
+		config:  q.sqlerWhere.config,
 		err:     q.sqlerWhere.err,
 	}
 
@@ -79,6 +82,7 @@ func (q *DeleteQueryBuilder) copyQuery() *DeleteQueryBuilder {
 		table:        q.table,
 		sqlerWhere:   newSqlerWhere,
 		sqlerOrderBy: newSqlerOrderBy,
+		config:       q.config,
 		err:          q.err,
 	}
 
@@ -101,6 +105,21 @@ func (q *DeleteQueryBuilder) copyQuery() *DeleteQueryBuilder {
 func (q *DeleteQueryBuilder) WithClient(client Querier) *DeleteQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.client = client
+
+	return newQuery
+}
+
+// WithConfig sets a custom configuration for struct tags and placeholders.
+// Returns a new query builder with the specified configuration.
+//
+// Example:
+//
+//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	query := Delete("users").WithConfig(config).Where(...)
+func (q *DeleteQueryBuilder) WithConfig(config *Config) *DeleteQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.config = config
+	newQuery.sqlerWhere.WithConfig(config)
 
 	return newQuery
 }
@@ -213,6 +232,7 @@ func (q *DeleteQueryBuilder) ToSql() (query string, params []any, err error) {
 // buildDeleteSql builds the final DELETE SQL query string with positional parameters.
 func (q *DeleteQueryBuilder) buildDeleteSql() (query string, params []any, err error) {
 	params = []any{}
+	paramIndex := 0 // Track parameter index for numbered placeholders (0-based)
 
 	var sql strings.Builder
 
@@ -223,13 +243,14 @@ func (q *DeleteQueryBuilder) buildDeleteSql() (query string, params []any, err e
 	// WHERE clause
 	var whereSQL string
 	var whereArgs []any
-	if whereSQL, whereArgs, err = q.sqlerWhere.ToSql(); err != nil {
+	if whereSQL, whereArgs, err = q.sqlerWhere.toSqlWithStartIndex(paramIndex); err != nil {
 		return "", nil, fmt.Errorf("could not build WHERE clause: %w", err)
 	}
 	if whereSQL != "" {
 		sql.WriteString(" WHERE ")
 		sql.WriteString(whereSQL)
 		params = append(params, whereArgs...)
+		paramIndex += len(whereArgs)
 	}
 
 	// ORDER BY clause
@@ -244,7 +265,7 @@ func (q *DeleteQueryBuilder) buildDeleteSql() (query string, params []any, err e
 
 	// LIMIT clause
 	if q.limitValue != nil {
-		sql.WriteString(" LIMIT ?")
+		sql.WriteString(fmt.Sprintf(" LIMIT %s", q.config.PlaceholderFormat(paramIndex)))
 		params = append(params, *q.limitValue)
 	}
 

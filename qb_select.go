@@ -25,6 +25,7 @@ import (
 //	sql, args, err := query.ToSql()
 type SelectQueryBuilder struct {
 	client       Querier
+	config       *Config
 	table        string
 	tableAlias   string
 	projections  []string
@@ -48,6 +49,7 @@ type SelectQueryBuilder struct {
 func From(table string) *SelectQueryBuilder {
 	return &SelectQueryBuilder{
 		table:        table,
+		config:       DefaultConfig(),
 		projections:  []string{},
 		sqlerWhere:   NewSqlerWhere(),
 		sqlerGroupBy: NewSqlerGroupBy(),
@@ -64,6 +66,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 	newSqlerWhere := &SqlerWhere{
 		clauses: append([]string{}, q.sqlerWhere.clauses...),
 		params:  append([]any{}, q.sqlerWhere.params...),
+		config:  q.sqlerWhere.config,
 		err:     q.sqlerWhere.err,
 	}
 
@@ -77,6 +80,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 	newSqlerHaving := &SqlerHaving{
 		clauses: append([]string{}, q.sqlerHaving.clauses...),
 		params:  append([]any{}, q.sqlerHaving.params...),
+		config:  q.sqlerHaving.config,
 		err:     q.sqlerHaving.err,
 	}
 
@@ -88,6 +92,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 
 	newQuery := &SelectQueryBuilder{
 		client:       q.client,
+		config:       q.config,
 		table:        q.table,
 		tableAlias:   q.tableAlias,
 		projections:  append([]string{}, q.projections...),
@@ -121,6 +126,24 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 func (q *SelectQueryBuilder) WithClient(client Querier) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.client = client
+
+	return newQuery
+}
+
+// WithConfig sets a custom configuration for the query builder.
+// This allows customization of struct tags and parameter placeholders.
+// Returns a new query builder with the config attached.
+//
+// Example:
+//
+//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	query := From("users").WithConfig(config).Limit(10)
+//	sql, args, err := query.ToSql()
+func (q *SelectQueryBuilder) WithConfig(config *Config) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.config = config
+	newQuery.sqlerWhere.WithConfig(config)
+	newQuery.sqlerHaving.WithConfig(config)
 
 	return newQuery
 }
@@ -210,7 +233,11 @@ func (q *SelectQueryBuilder) Column(col any) *SelectQueryBuilder {
 //	From("users").ForType(&User{})  // SELECT `id`, `name`, `email`
 func (q *SelectQueryBuilder) ForType(t any) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
-	tags := refl.GetTags(t, dbStructTag)
+	structTag := dbStructTag
+	if newQuery.config != nil && newQuery.config.StructTag != "" {
+		structTag = newQuery.config.StructTag
+	}
+	tags := refl.GetTags(t, structTag)
 
 	var err error
 	var cols []any
@@ -299,8 +326,8 @@ func (q *SelectQueryBuilder) GroupBy(cols ...any) *SelectQueryBuilder {
 //
 //	GroupBy("status").Having("COUNT(*) > ?", 10)     // HAVING COUNT(*) > ?
 //	Having("SUM(amount) > ?", 1000)                  // HAVING SUM(amount) > ?
-//	Having(Col("COUNT(*)").Gt(10))                   // HAVING COUNT(*) > ?
-//	Having(And(Col("COUNT(*)").Gt(5), Col("SUM(amount)").Gt(1000))) // HAVING (COUNT(*) > ? AND SUM(amount) > ?)
+//	Having(Col("*").Count().Gt(10))                  // HAVING COUNT(*) > ?
+//	Having(And(Col("*").Count().Gt(5), Col("amount").Sum().Gt(1000))) // HAVING (COUNT(*) > ? AND SUM(`amount`) > ?)
 func (q *SelectQueryBuilder) Having(condition any, params ...any) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.sqlerHaving.Having(condition, params...)
@@ -390,6 +417,7 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 	var sql string
 	var args []any
 	var sqlBuilder strings.Builder
+	paramIndex := 0 // Track current parameter index for numbered placeholders (0-based)
 
 	// SELECT clause
 	sqlBuilder.WriteString("SELECT ")
@@ -412,13 +440,14 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 	}
 
 	// WHERE clause
-	if sql, args, err = q.sqlerWhere.ToSql(); err != nil {
+	if sql, args, err = q.sqlerWhere.toSqlWithStartIndex(paramIndex); err != nil {
 		return "", nil, fmt.Errorf("could not build WHERE clause: %w", err)
 	}
 	if sql != "" {
 		sqlBuilder.WriteString(" WHERE ")
 		sqlBuilder.WriteString(sql)
 		params = append(params, args...)
+		paramIndex += len(args)
 	}
 
 	// GROUP BY clause
@@ -431,13 +460,14 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 	}
 
 	// HAVING clause
-	if sql, args, err = q.sqlerHaving.ToSql(); err != nil {
+	if sql, args, err = q.sqlerHaving.toSqlWithStartIndex(paramIndex); err != nil {
 		return "", nil, fmt.Errorf("could not build HAVING clause: %w", err)
 	}
 	if sql != "" {
 		sqlBuilder.WriteString(" HAVING ")
 		sqlBuilder.WriteString(sql)
 		params = append(params, args...)
+		paramIndex += len(args)
 	}
 
 	// ORDER BY clause
@@ -451,13 +481,14 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 
 	// LIMIT clause
 	if q.limitValue != nil {
-		sqlBuilder.WriteString(" LIMIT ?")
+		sqlBuilder.WriteString(fmt.Sprintf(" LIMIT %s", q.config.PlaceholderFormat(paramIndex)))
 		params = append(params, *q.limitValue)
+		paramIndex++
 	}
 
 	// OFFSET clause
 	if q.offsetValue != nil {
-		sqlBuilder.WriteString(" OFFSET ?")
+		sqlBuilder.WriteString(fmt.Sprintf(" OFFSET %s", q.config.PlaceholderFormat(paramIndex)))
 		params = append(params, *q.offsetValue)
 	}
 

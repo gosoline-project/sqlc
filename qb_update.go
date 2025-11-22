@@ -44,6 +44,7 @@ type UpdateQueryBuilder struct {
 	sqlerWhere   *SqlerWhere
 	sqlerOrderBy *SqlerOrderBy
 	limitValue   *int
+	config       *Config // Configuration for struct tags and placeholders
 	err          error
 }
 
@@ -60,6 +61,7 @@ func Update(table string) *UpdateQueryBuilder {
 		sets:         []Assignment{},
 		sqlerWhere:   NewSqlerWhere(),
 		sqlerOrderBy: NewSqlerOrderBy(),
+		config:       DefaultConfig(),
 	}
 }
 
@@ -71,6 +73,7 @@ func (q *UpdateQueryBuilder) copyQuery() *UpdateQueryBuilder {
 	newSqlerWhere := &SqlerWhere{
 		clauses: append([]string{}, q.sqlerWhere.clauses...),
 		params:  append([]any{}, q.sqlerWhere.params...),
+		config:  q.sqlerWhere.config,
 		err:     q.sqlerWhere.err,
 	}
 
@@ -97,6 +100,7 @@ func (q *UpdateQueryBuilder) copyQuery() *UpdateQueryBuilder {
 		setMap:       newSetMap,
 		sqlerWhere:   newSqlerWhere,
 		sqlerOrderBy: newSqlerOrderBy,
+		config:       q.config,
 		err:          q.err,
 	}
 
@@ -119,6 +123,21 @@ func (q *UpdateQueryBuilder) copyQuery() *UpdateQueryBuilder {
 func (q *UpdateQueryBuilder) WithClient(client Querier) *UpdateQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.client = client
+
+	return newQuery
+}
+
+// WithConfig sets a custom configuration for struct tags and placeholders.
+// Returns a new query builder with the specified configuration.
+//
+// Example:
+//
+//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	query := Update("users").WithConfig(config).Set(...)
+func (q *UpdateQueryBuilder) WithConfig(config *Config) *UpdateQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.config = config
+	newQuery.sqlerWhere.WithConfig(config)
 
 	return newQuery
 }
@@ -206,7 +225,7 @@ func (q *UpdateQueryBuilder) SetRecord(record any) *UpdateQueryBuilder {
 	newQuery := q.copyQuery()
 
 	// Get tags from record
-	tags := refl.GetTags(record, dbStructTag)
+	tags := refl.GetTags(record, q.config.StructTag)
 	if len(tags) == 0 {
 		newQuery.err = errors.New("record has no db tags")
 
@@ -349,8 +368,8 @@ func (q *UpdateQueryBuilder) ToSql() (query string, params []any, err error) {
 
 	// Handle SetRecord
 	if q.record != nil {
-		tags := refl.GetTags(q.record, dbStructTag)
-		values, err := extractValuesFromStruct(q.record, tags)
+		tags := refl.GetTags(q.record, q.config.StructTag)
+		values, err := extractValuesFromStruct(q.record, tags, q.config.StructTag)
 		if err != nil {
 			return "", nil, fmt.Errorf("could not extract values from record: %w", err)
 		}
@@ -373,6 +392,7 @@ func (q *UpdateQueryBuilder) ToSql() (query string, params []any, err error) {
 // buildUpdateSql builds the final UPDATE SQL query string with positional parameters.
 func (q *UpdateQueryBuilder) buildUpdateSql(assignments []Assignment) (query string, params []any, err error) {
 	params = []any{}
+	paramIndex := 0 // Track parameter index for numbered placeholders (0-based)
 
 	var sql strings.Builder
 
@@ -390,9 +410,10 @@ func (q *UpdateQueryBuilder) buildUpdateSql(assignments []Assignment) (query str
 			// Expression - insert directly without parameterization
 			setClauses[i] = fmt.Sprintf("%s = %v", quotedCol, assignment.Value)
 		} else {
-			// Value - use placeholder
-			setClauses[i] = fmt.Sprintf("%s = ?", quotedCol)
+			// Use configured placeholder
+			setClauses[i] = fmt.Sprintf("%s = %s", quotedCol, q.config.PlaceholderFormat(paramIndex))
 			params = append(params, assignment.Value)
+			paramIndex++
 		}
 	}
 
@@ -401,13 +422,14 @@ func (q *UpdateQueryBuilder) buildUpdateSql(assignments []Assignment) (query str
 	// WHERE clause
 	var whereSQL string
 	var whereArgs []any
-	if whereSQL, whereArgs, err = q.sqlerWhere.ToSql(); err != nil {
+	if whereSQL, whereArgs, err = q.sqlerWhere.toSqlWithStartIndex(paramIndex); err != nil {
 		return "", nil, fmt.Errorf("could not build WHERE clause: %w", err)
 	}
 	if whereSQL != "" {
 		sql.WriteString(" WHERE ")
 		sql.WriteString(whereSQL)
 		params = append(params, whereArgs...)
+		paramIndex += len(whereArgs)
 	}
 
 	// ORDER BY clause
@@ -422,7 +444,7 @@ func (q *UpdateQueryBuilder) buildUpdateSql(assignments []Assignment) (query str
 
 	// LIMIT clause
 	if q.limitValue != nil {
-		sql.WriteString(" LIMIT ?")
+		sql.WriteString(fmt.Sprintf(" LIMIT %s", q.config.PlaceholderFormat(paramIndex)))
 		params = append(params, *q.limitValue)
 	}
 
