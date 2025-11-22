@@ -1,4 +1,4 @@
-package sqlg
+package sqlc
 
 import (
 	"fmt"

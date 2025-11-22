@@ -1,4 +1,4 @@
-package sqlg
+package sqlc
 
 import (
 	"fmt"
@@ -16,16 +16,94 @@ import (
 //
 // Expressions are immutable - each method returns a new Expression instance.
 type Expression struct {
-	raw        string
-	function   string
-	alias      string
-	direction  string // for ORDER BY
-	condition  string // for WHERE conditions like "IN", "=", etc.
-	parameters []any
-	isLiteral  bool // if true, raw value is not quoted
+	raw          string
+	function     string
+	functionArgs []any // additional arguments for functions like ROUND(col, 2)
+	alias        string
+	direction    string // for ORDER BY
+	condition    string // for WHERE conditions like "IN", "=", etc.
+	parameters   []any
+	isLiteral    bool // if true, raw value is not quoted
 	// For composite expressions (AND, OR, NOT)
 	operator       string // "AND", "OR", "NOT"
 	subExpressions []*Expression
+}
+
+// copy creates a shallow copy of the Expression.
+// This helper method reduces code duplication when creating new Expression instances
+// with minor modifications.
+func (e *Expression) copy() *Expression {
+	return &Expression{
+		raw:            e.raw,
+		function:       e.function,
+		functionArgs:   e.functionArgs,
+		alias:          e.alias,
+		direction:      e.direction,
+		condition:      e.condition,
+		parameters:     e.parameters,
+		isLiteral:      e.isLiteral,
+		operator:       e.operator,
+		subExpressions: e.subExpressions,
+	}
+}
+
+// wrapWithFunction wraps an expression in a function, handling both simple columns
+// and complex expressions (nested functions, subexpressions, etc.).
+// For simple columns, it creates a function with the raw column name.
+// For complex expressions, it wraps the entire expression as a subexpression.
+func (e *Expression) wrapWithFunction(functionName string) *Expression {
+	// If the expression already has a function or is not a simple column, wrap it as a subexpression
+	if e.function != "" || len(e.subExpressions) > 0 {
+		return &Expression{
+			function:       functionName,
+			subExpressions: []*Expression{e},
+			alias:          e.alias,
+		}
+	}
+	// Simple column case
+	return &Expression{
+		raw:      e.raw,
+		function: functionName,
+		alias:    e.alias,
+	}
+}
+
+// wrapWithFunctionArgs wraps an expression in a function with additional arguments.
+// This is used for functions that take extra parameters like ROUND(col, 2), LEFT(col, 3), etc.
+// For simple columns, it creates a function with the raw column name and arguments.
+// For complex expressions, it wraps the entire expression as a subexpression.
+func (e *Expression) wrapWithFunctionArgs(functionName string, args ...any) *Expression {
+	// If the expression already has a function or is not a simple column, wrap it as a subexpression
+	if e.function != "" || len(e.subExpressions) > 0 {
+		return &Expression{
+			function:       functionName,
+			subExpressions: []*Expression{e},
+			functionArgs:   args,
+			alias:          e.alias,
+		}
+	}
+	// Simple column case
+	return &Expression{
+		raw:          e.raw,
+		function:     functionName,
+		functionArgs: args,
+		alias:        e.alias,
+	}
+}
+
+// applyCondition creates a new Expression with a condition applied.
+// This preserves the function, functionArgs, and subExpressions from the original expression.
+// Used by comparison operators like Eq, Gt, Lt, In, IsNull, Like, etc.
+// Accepts zero or more parameters (use zero for IS NULL, IS NOT NULL).
+func (e *Expression) applyCondition(condition string, parameters ...any) *Expression {
+	expr := e.copy()
+	expr.condition = condition
+	expr.parameters = parameters
+	// Clear direction and alias as they don't apply to conditions
+	expr.direction = ""
+	expr.alias = ""
+
+	return expr
 }
 
 // Col creates a new Expression from a column name.
@@ -126,81 +204,6 @@ func Not(expr *Expression) *Expression {
 //	// Generates: (`id` = ?)
 type Eq map[string]any
 
-// Count wraps the expression in a COUNT() aggregate function.
-// Returns a new Expression that counts non-NULL values.
-//
-// Example:
-//
-//	Col("id").Count()        // COUNT(`id`)
-//	Col("*").Count().As("total") // COUNT(*) AS total
-func (e *Expression) Count() *Expression {
-	return &Expression{
-		raw:      e.raw,
-		function: "COUNT",
-		alias:    e.alias,
-	}
-}
-
-// Sum wraps the expression in a SUM() aggregate function.
-// Returns a new Expression that sums numeric values.
-//
-// Example:
-//
-//	Col("amount").Sum()           // SUM(`amount`)
-//	Col("price").Sum().As("total") // SUM(`price`) AS total
-func (e *Expression) Sum() *Expression {
-	return &Expression{
-		raw:      e.raw,
-		function: "SUM",
-		alias:    e.alias,
-	}
-}
-
-// Avg wraps the expression in an AVG() aggregate function.
-// Returns a new Expression that calculates the average of numeric values.
-//
-// Example:
-//
-//	Col("rating").Avg()             // AVG(`rating`)
-//	Col("score").Avg().As("average") // AVG(`score`) AS average
-func (e *Expression) Avg() *Expression {
-	return &Expression{
-		raw:      e.raw,
-		function: "AVG",
-		alias:    e.alias,
-	}
-}
-
-// Min wraps the expression in a MIN() aggregate function.
-// Returns a new Expression that finds the minimum value.
-//
-// Example:
-//
-//	Col("price").Min()              // MIN(`price`)
-//	Col("created_at").Min().As("earliest") // MIN(`created_at`) AS earliest
-func (e *Expression) Min() *Expression {
-	return &Expression{
-		raw:      e.raw,
-		function: "MIN",
-		alias:    e.alias,
-	}
-}
-
-// Max wraps the expression in a MAX() aggregate function.
-// Returns a new Expression that finds the maximum value.
-//
-// Example:
-//
-//	Col("price").Max()              // MAX(`price`)
-//	Col("updated_at").Max().As("latest") // MAX(`updated_at`) AS latest
-func (e *Expression) Max() *Expression {
-	return &Expression{
-		raw:      e.raw,
-		function: "MAX",
-		alias:    e.alias,
-	}
-}
-
 // As sets an alias for the expression in the SELECT clause.
 // Returns a new Expression with the specified alias.
 //
@@ -210,12 +213,10 @@ func (e *Expression) Max() *Expression {
 //	Col("id").Count().As("total_users")  // COUNT(`id`) AS total_users
 //	Lit("'constant'").As("value")        // 'constant' AS value
 func (e *Expression) As(alias string) *Expression {
-	return &Expression{
-		raw:       e.raw,
-		function:  e.function,
-		alias:     alias,
-		isLiteral: e.isLiteral,
-	}
+	expr := e.copy()
+	expr.alias = alias
+
+	return expr
 }
 
 // Asc marks the expression for ascending order in ORDER BY clauses.
@@ -227,13 +228,10 @@ func (e *Expression) As(alias string) *Expression {
 //	Col("created_at").Asc()  // `created_at` ASC
 //	Lit("1").Asc()           // 1 ASC
 func (e *Expression) Asc() *Expression {
-	return &Expression{
-		raw:       e.raw,
-		function:  e.function,
-		alias:     e.alias,
-		direction: "ASC",
-		isLiteral: e.isLiteral,
-	}
+	expr := e.copy()
+	expr.direction = "ASC"
+
+	return expr
 }
 
 // Desc marks the expression for descending order in ORDER BY clauses.
@@ -245,13 +243,10 @@ func (e *Expression) Asc() *Expression {
 //	Col("created_at").Desc() // `created_at` DESC
 //	Lit("2").Desc()          // 2 DESC
 func (e *Expression) Desc() *Expression {
-	return &Expression{
-		raw:       e.raw,
-		function:  e.function,
-		alias:     e.alias,
-		direction: "DESC",
-		isLiteral: e.isLiteral,
-	}
+	expr := e.copy()
+	expr.direction = "DESC"
+
+	return expr
 }
 
 // Eq creates an equality condition (column = value).
@@ -262,11 +257,7 @@ func (e *Expression) Desc() *Expression {
 //	Col("status").Eq("active")  // `status` = ?
 //	Col("age").Eq(21)           // `age` = ?
 func (e *Expression) Eq(value any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  "=",
-		parameters: []any{value},
-	}
+	return e.applyCondition("=", value)
 }
 
 // NotEq creates a not-equal condition (column != value).
@@ -277,11 +268,7 @@ func (e *Expression) Eq(value any) *Expression {
 //	Col("status").NotEq("deleted")  // `status` != ?
 //	Col("role").NotEq("guest")      // `role` != ?
 func (e *Expression) NotEq(value any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  "!=",
-		parameters: []any{value},
-	}
+	return e.applyCondition("!=", value)
 }
 
 // Gt creates a greater-than condition (column > value).
@@ -292,11 +279,7 @@ func (e *Expression) NotEq(value any) *Expression {
 //	Col("age").Gt(18)      // `age` > ?
 //	Col("price").Gt(100.0) // `price` > ?
 func (e *Expression) Gt(value any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  ">",
-		parameters: []any{value},
-	}
+	return e.applyCondition(">", value)
 }
 
 // Gte creates a greater-than-or-equal condition (column >= value).
@@ -307,11 +290,7 @@ func (e *Expression) Gt(value any) *Expression {
 //	Col("age").Gte(18)      // `age` >= ?
 //	Col("score").Gte(70)    // `score` >= ?
 func (e *Expression) Gte(value any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  ">=",
-		parameters: []any{value},
-	}
+	return e.applyCondition(">=", value)
 }
 
 // Lt creates a less-than condition (column < value).
@@ -322,11 +301,7 @@ func (e *Expression) Gte(value any) *Expression {
 //	Col("age").Lt(65)      // `age` < ?
 //	Col("stock").Lt(10)    // `stock` < ?
 func (e *Expression) Lt(value any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  "<",
-		parameters: []any{value},
-	}
+	return e.applyCondition("<", value)
 }
 
 // Lte creates a less-than-or-equal condition (column <= value).
@@ -337,11 +312,7 @@ func (e *Expression) Lt(value any) *Expression {
 //	Col("price").Lte(100.0)  // `price` <= ?
 //	Col("quantity").Lte(50)  // `quantity` <= ?
 func (e *Expression) Lte(value any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  "<=",
-		parameters: []any{value},
-	}
+	return e.applyCondition("<=", value)
 }
 
 // In creates an IN condition (column IN (values...)).
@@ -352,11 +323,7 @@ func (e *Expression) Lte(value any) *Expression {
 //	Col("status").In("active", "pending", "approved")  // `status` IN (?, ?, ?)
 //	Col("id").In(1, 2, 3, 4, 5)                        // `id` IN (?, ?, ?, ?, ?)
 func (e *Expression) In(values ...any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  "IN",
-		parameters: values,
-	}
+	return e.applyCondition("IN", values...)
 }
 
 // NotIn creates a NOT IN condition (column NOT IN (values...)).
@@ -367,11 +334,7 @@ func (e *Expression) In(values ...any) *Expression {
 //	Col("status").NotIn("deleted", "archived")  // `status` NOT IN (?, ?)
 //	Col("type").NotIn("spam", "bot")            // `type` NOT IN (?, ?)
 func (e *Expression) NotIn(values ...any) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  "NOT IN",
-		parameters: values,
-	}
+	return e.applyCondition("NOT IN", values...)
 }
 
 // IsNull creates an IS NULL condition.
@@ -382,10 +345,7 @@ func (e *Expression) NotIn(values ...any) *Expression {
 //	Col("deleted_at").IsNull()  // `deleted_at` IS NULL
 //	Col("parent_id").IsNull()   // `parent_id` IS NULL
 func (e *Expression) IsNull() *Expression {
-	return &Expression{
-		raw:       e.raw,
-		condition: "IS NULL",
-	}
+	return e.applyCondition("IS NULL")
 }
 
 // IsNotNull creates an IS NOT NULL condition.
@@ -396,10 +356,7 @@ func (e *Expression) IsNull() *Expression {
 //	Col("email").IsNotNull()     // `email` IS NOT NULL
 //	Col("verified_at").IsNotNull() // `verified_at` IS NOT NULL
 func (e *Expression) IsNotNull() *Expression {
-	return &Expression{
-		raw:       e.raw,
-		condition: "IS NOT NULL",
-	}
+	return e.applyCondition("IS NOT NULL")
 }
 
 // Like creates a LIKE condition for pattern matching.
@@ -407,14 +364,44 @@ func (e *Expression) IsNotNull() *Expression {
 //
 // Example:
 //
-//	Col("name").Like("%john%")    // `name` LIKE ?
-//	Col("email").Like("%@example.com") // `email` LIKE ?
+//	Col("name").Like("%john%")  // `name` LIKE ?
+//	Col("email").Like("admin@%") // `email` LIKE ?
 func (e *Expression) Like(pattern string) *Expression {
-	return &Expression{
-		raw:        e.raw,
-		condition:  "LIKE",
-		parameters: []any{pattern},
-	}
+	return e.applyCondition("LIKE", pattern)
+}
+
+// NotLike creates a NOT LIKE condition for negated pattern matching.
+// Returns a new Expression that performs negated pattern matching with the given pattern.
+//
+// Example:
+//
+//	Col("name").NotLike("%test%")      // `name` NOT LIKE ?
+//	Col("email").NotLike("%@spam.com") // `email` NOT LIKE ?
+func (e *Expression) NotLike(pattern string) *Expression {
+	return e.applyCondition("NOT LIKE", pattern)
+}
+
+// Between creates a BETWEEN condition (column BETWEEN min AND max).
+// Returns a new Expression that checks if the column value is between two values (inclusive).
+//
+// Example:
+//
+//	Col("age").Between(18, 65)                    // `age` BETWEEN ? AND ?
+//	Col("created_at").Between("2020-01-01", "2020-12-31") // `created_at` BETWEEN ? AND ?
+//	Col("price").Between(10.0, 99.99)             // `price` BETWEEN ? AND ?
+func (e *Expression) Between(min any, max any) *Expression {
+	return e.applyCondition("BETWEEN", min, max)
+}
+
+// NotBetween creates a NOT BETWEEN condition (column NOT BETWEEN min AND max).
+// Returns a new Expression that checks if the column value is not between two values.
+//
+// Example:
+//
+//	Col("age").NotBetween(0, 17)                  // `age` NOT BETWEEN ? AND ?
+//	Col("price").NotBetween(100, 1000)            // `price` NOT BETWEEN ? AND ?
+func (e *Expression) NotBetween(min any, max any) *Expression {
+	return e.applyCondition("NOT BETWEEN", min, max)
 }
 
 // toSQL converts the expression to a SQL fragment for SELECT, GROUP BY, or ORDER BY clauses.
@@ -424,11 +411,35 @@ func (e *Expression) toSQL() string {
 	var sql string
 	if e.isLiteral {
 		sql = e.raw // Don't quote literal values
-	} else {
+	} else if e.raw != "" {
 		sql = quoteIdentifier(e.raw)
 	}
+
 	if e.function != "" {
-		sql = fmt.Sprintf("%s(%s)", e.function, sql)
+		// Handle functions with subExpressions (like CONCAT, CONCAT_WS)
+		switch {
+		case len(e.subExpressions) > 0:
+			argStrs := make([]string, len(e.subExpressions))
+			for i, subExpr := range e.subExpressions {
+				argStrs[i] = subExpr.toSQL()
+			}
+			sql = fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, ", "))
+		case e.function == "LOCATE" && len(e.functionArgs) > 0:
+			// LOCATE has reversed argument order: LOCATE(substr, str)
+			sql = fmt.Sprintf("LOCATE(%v, %s)", e.functionArgs[0], sql)
+		default:
+			// Build function arguments normally
+			args := sql
+			if len(e.functionArgs) > 0 {
+				argStrs := make([]string, len(e.functionArgs)+1)
+				argStrs[0] = sql
+				for i, arg := range e.functionArgs {
+					argStrs[i+1] = fmt.Sprintf("%v", arg)
+				}
+				args = strings.Join(argStrs, ", ")
+			}
+			sql = fmt.Sprintf("%s(%s)", e.function, args)
+		}
 	}
 	if e.alias != "" {
 		sql = fmt.Sprintf("%s AS %s", sql, e.alias)
@@ -451,13 +462,14 @@ func (e *Expression) toConditionSQL() string {
 
 	// Handle simple conditions
 	if e.condition == "" {
-		return quoteIdentifier(e.raw)
+		return e.toSQL() // Use toSQL() to handle functions
 	}
 
-	quotedCol := quoteIdentifier(e.raw)
+	// Get the column expression (may include function)
+	colExpr := e.toSQL()
 
 	if e.condition == "IS NULL" || e.condition == "IS NOT NULL" {
-		return fmt.Sprintf("%s %s", quotedCol, e.condition)
+		return fmt.Sprintf("%s %s", colExpr, e.condition)
 	}
 
 	if e.condition == "IN" || e.condition == "NOT IN" {
@@ -466,10 +478,14 @@ func (e *Expression) toConditionSQL() string {
 			placeholders[i] = "?"
 		}
 
-		return fmt.Sprintf("%s %s (%s)", quotedCol, e.condition, strings.Join(placeholders, ", "))
+		return fmt.Sprintf("%s %s (%s)", colExpr, e.condition, strings.Join(placeholders, ", "))
 	}
 
-	return fmt.Sprintf("%s %s ?", quotedCol, e.condition)
+	if e.condition == "BETWEEN" || e.condition == "NOT BETWEEN" {
+		return fmt.Sprintf("%s %s ? AND ?", colExpr, e.condition)
+	}
+
+	return fmt.Sprintf("%s %s ?", colExpr, e.condition)
 }
 
 // toCompositeConditionSQL handles composite expressions (AND, OR, NOT).

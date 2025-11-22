@@ -1,4 +1,4 @@
-package sqlg
+package sqlc
 
 import (
 	"fmt"
@@ -80,10 +80,10 @@ type SettingsTimeout struct {
 //
 //	client, err := NewClientWithSettings(ctx, logger, settings)
 func ReadSettings(config cfg.Config, name string) (*Settings, error) {
-	key := fmt.Sprintf("sqlg.%s", name)
+	key := fmt.Sprintf("sqlc.%s", name)
 
 	if !config.IsSet(key) {
-		return nil, fmt.Errorf("there is no sqlg connection with name %q configured - key should be sqlq.%s", name, name)
+		return nil, fmt.Errorf("there is no sqlc connection with name %q configured - key should be sqlc.%s", name, name)
 	}
 
 	settings := &Settings{}

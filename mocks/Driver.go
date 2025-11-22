@@ -2,10 +2,10 @@
 // github.com/vektra/mockery
 // template: testify
 
-package sqlg
+package sqlc
 
 import (
-	"github.com/gosoline-project/sqlg"
+	"github.com/gosoline-project/sqlc"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -37,7 +37,7 @@ func (_m *Driver) EXPECT() *Driver_Expecter {
 }
 
 // GetDSN provides a mock function for the type Driver
-func (_mock *Driver) GetDSN(settings *sqlg.Settings) string {
+func (_mock *Driver) GetDSN(settings *sqlc.Settings) string {
 	ret := _mock.Called(settings)
 
 	if len(ret) == 0 {
@@ -45,7 +45,7 @@ func (_mock *Driver) GetDSN(settings *sqlg.Settings) string {
 	}
 
 	var r0 string
-	if returnFunc, ok := ret.Get(0).(func(*sqlg.Settings) string); ok {
+	if returnFunc, ok := ret.Get(0).(func(*sqlc.Settings) string); ok {
 		r0 = returnFunc(settings)
 	} else {
 		r0 = ret.Get(0).(string)
@@ -59,16 +59,16 @@ type Driver_GetDSN_Call struct {
 }
 
 // GetDSN is a helper method to define mock.On call
-//   - settings *sqlg.Settings
+//   - settings *sqlc.Settings
 func (_e *Driver_Expecter) GetDSN(settings interface{}) *Driver_GetDSN_Call {
 	return &Driver_GetDSN_Call{Call: _e.mock.On("GetDSN", settings)}
 }
 
-func (_c *Driver_GetDSN_Call) Run(run func(settings *sqlg.Settings)) *Driver_GetDSN_Call {
+func (_c *Driver_GetDSN_Call) Run(run func(settings *sqlc.Settings)) *Driver_GetDSN_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 *sqlg.Settings
+		var arg0 *sqlc.Settings
 		if args[0] != nil {
-			arg0 = args[0].(*sqlg.Settings)
+			arg0 = args[0].(*sqlc.Settings)
 		}
 		run(
 			arg0,
@@ -82,7 +82,7 @@ func (_c *Driver_GetDSN_Call) Return(s string) *Driver_GetDSN_Call {
 	return _c
 }
 
-func (_c *Driver_GetDSN_Call) RunAndReturn(run func(settings *sqlg.Settings) string) *Driver_GetDSN_Call {
+func (_c *Driver_GetDSN_Call) RunAndReturn(run func(settings *sqlc.Settings) string) *Driver_GetDSN_Call {
 	_c.Call.Return(run)
 	return _c
 }

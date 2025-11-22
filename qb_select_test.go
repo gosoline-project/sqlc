@@ -1,18 +1,18 @@
-package sqlg_test
+package sqlc_test
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
-	"github.com/gosoline-project/sqlg"
-	mocks "github.com/gosoline-project/sqlg/mocks"
+	"github.com/gosoline-project/sqlc"
+	mocks "github.com/gosoline-project/sqlc/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSimpleSelect(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name", "email")
 
 	sql, params, err := q.ToSql()
@@ -23,7 +23,7 @@ func TestSimpleSelect(t *testing.T) {
 }
 
 func TestSelectWithWhere(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name", "email").
 		Where("status = ?", "active").
 		Where("age >= ?", 18)
@@ -38,11 +38,11 @@ func TestSelectWithWhere(t *testing.T) {
 }
 
 func TestSelectWithExpressions(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns(
-			sqlg.Col("customer_id"),
-			sqlg.Col("*").Count().As("order_count"),
-			sqlg.Col("amount").Sum().As("total_amount"),
+			sqlc.Col("customer_id"),
+			sqlc.Col("*").Count().As("order_count"),
+			sqlc.Col("amount").Sum().As("total_amount"),
 		).
 		GroupBy("customer_id")
 
@@ -54,7 +54,7 @@ func TestSelectWithExpressions(t *testing.T) {
 }
 
 func TestSelectWithLimitOffset(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		Where("status = ?", "active").
 		OrderBy("created_at DESC").
@@ -72,7 +72,7 @@ func TestSelectWithLimitOffset(t *testing.T) {
 }
 
 func TestSelectDistinct(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("country").
 		Distinct()
 
@@ -84,7 +84,7 @@ func TestSelectDistinct(t *testing.T) {
 }
 
 func TestSelectWithAlias(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		As("u").
 		Columns("u.id", "u.name")
 
@@ -96,13 +96,13 @@ func TestSelectWithAlias(t *testing.T) {
 }
 
 func TestSelectAllAggregates(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns(
-			sqlg.Col("price").Min().As("min_price"),
-			sqlg.Col("price").Max().As("max_price"),
-			sqlg.Col("price").Avg().As("avg_price"),
-			sqlg.Col("price").Sum().As("total_price"),
-			sqlg.Col("*").Count().As("product_count"),
+			sqlc.Col("price").Min().As("min_price"),
+			sqlc.Col("price").Max().As("max_price"),
+			sqlc.Col("price").Avg().As("avg_price"),
+			sqlc.Col("price").Sum().As("total_price"),
+			sqlc.Col("*").Count().As("product_count"),
 		)
 
 	sql, params, err := q.ToSql()
@@ -113,20 +113,20 @@ func TestSelectAllAggregates(t *testing.T) {
 }
 
 func TestComplexQuery(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns(
-			sqlg.Col("customer_id"),
-			sqlg.Col("status"),
-			sqlg.Col("*").Count().As("order_count"),
-			sqlg.Col("amount").Sum().As("total_amount"),
-			sqlg.Col("amount").Avg().As("avg_amount"),
+			sqlc.Col("customer_id"),
+			sqlc.Col("status"),
+			sqlc.Col("*").Count().As("order_count"),
+			sqlc.Col("amount").Sum().As("total_amount"),
+			sqlc.Col("amount").Avg().As("avg_amount"),
 		).
 		Where("created_at >= ?", "2024-01-01").
 		Where("status IN (?, ?)", "completed", "shipped").
 		GroupBy("customer_id", "status").
 		Having("COUNT(*) >= ?", 5).
 		Having("SUM(amount) > ?", 10000).
-		OrderBy(sqlg.Col("total_amount").Desc()).
+		OrderBy(sqlc.Col("total_amount").Desc()).
 		Limit(100)
 
 	sql, params, err := q.ToSql()
@@ -144,7 +144,7 @@ func TestComplexQuery(t *testing.T) {
 
 func TestImmutability(t *testing.T) {
 	// Create base query
-	base := sqlg.From("users").Columns("id", "name")
+	base := sqlc.From("users").Columns("id", "name")
 
 	// Create two different queries from the same base
 	q1 := base.Where("status = ?", "active")
@@ -168,9 +168,9 @@ func TestImmutability(t *testing.T) {
 }
 
 func TestWhereWithInExpression(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "customer_id", "status").
-		Where(sqlg.Col("status").In("completed", "shipped"))
+		Where(sqlc.Col("status").In("completed", "shipped"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -182,10 +182,10 @@ func TestWhereWithInExpression(t *testing.T) {
 }
 
 func TestWhereWithMultipleExpressions(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "customer_id", "amount").
-		Where(sqlg.Col("status").In("completed", "shipped")).
-		Where(sqlg.Col("amount").Gte(100))
+		Where(sqlc.Col("status").In("completed", "shipped")).
+		Where(sqlc.Col("amount").Gte(100))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -198,9 +198,9 @@ func TestWhereWithMultipleExpressions(t *testing.T) {
 }
 
 func TestWhereEqExpression(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Col("status").Eq("active"))
+		Where(sqlc.Col("status").Eq("active"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -213,49 +213,49 @@ func TestWhereEqExpression(t *testing.T) {
 func TestWhereComparisonExpressions(t *testing.T) {
 	tests := []struct {
 		name          string
-		expr          *sqlg.Expression
+		expr          *sqlc.Expression
 		expectedSQL   string
 		expectedValue any
 	}{
 		{
 			name:          "Eq",
-			expr:          sqlg.Col("age").Eq(25),
+			expr:          sqlc.Col("age").Eq(25),
 			expectedSQL:   "`age` = ?",
 			expectedValue: 25,
 		},
 		{
 			name:          "NotEq",
-			expr:          sqlg.Col("status").NotEq("deleted"),
+			expr:          sqlc.Col("status").NotEq("deleted"),
 			expectedSQL:   "`status` != ?",
 			expectedValue: "deleted",
 		},
 		{
 			name:          "Gt",
-			expr:          sqlg.Col("price").Gt(100),
+			expr:          sqlc.Col("price").Gt(100),
 			expectedSQL:   "`price` > ?",
 			expectedValue: 100,
 		},
 		{
 			name:          "Gte",
-			expr:          sqlg.Col("age").Gte(18),
+			expr:          sqlc.Col("age").Gte(18),
 			expectedSQL:   "`age` >= ?",
 			expectedValue: 18,
 		},
 		{
 			name:          "Lt",
-			expr:          sqlg.Col("price").Lt(50),
+			expr:          sqlc.Col("price").Lt(50),
 			expectedSQL:   "`price` < ?",
 			expectedValue: 50,
 		},
 		{
 			name:          "Lte",
-			expr:          sqlg.Col("age").Lte(65),
+			expr:          sqlc.Col("age").Lte(65),
 			expectedSQL:   "`age` <= ?",
 			expectedValue: 65,
 		},
 		{
 			name:          "Like",
-			expr:          sqlg.Col("name").Like("%john%"),
+			expr:          sqlc.Col("name").Like("%john%"),
 			expectedSQL:   "`name` LIKE ?",
 			expectedValue: "%john%",
 		},
@@ -263,7 +263,7 @@ func TestWhereComparisonExpressions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			q := sqlg.From("users").
+			q := sqlc.From("users").
 				Columns("id").
 				Where(tt.expr)
 
@@ -278,9 +278,9 @@ func TestWhereComparisonExpressions(t *testing.T) {
 }
 
 func TestWhereIsNullExpression(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Col("deleted_at").IsNull())
+		Where(sqlc.Col("deleted_at").IsNull())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -290,9 +290,9 @@ func TestWhereIsNullExpression(t *testing.T) {
 }
 
 func TestWhereIsNotNullExpression(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Col("email").IsNotNull())
+		Where(sqlc.Col("email").IsNotNull())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -302,9 +302,9 @@ func TestWhereIsNotNullExpression(t *testing.T) {
 }
 
 func TestWhereNotInExpression(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "status").
-		Where(sqlg.Col("status").NotIn("cancelled", "refunded"))
+		Where(sqlc.Col("status").NotIn("cancelled", "refunded"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -315,12 +315,80 @@ func TestWhereNotInExpression(t *testing.T) {
 	assert.Equal(t, "refunded", params[1])
 }
 
+func TestWhereBetweenExpression(t *testing.T) {
+	q := sqlc.From("products").
+		Columns("id", "name", "price").
+		Where(sqlc.Col("price").Between(10.0, 99.99))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `price` FROM `products` WHERE `price` BETWEEN ? AND ?", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, 10.0, params[0])
+	assert.Equal(t, 99.99, params[1])
+}
+
+func TestWhereBetweenExpressionWithDates(t *testing.T) {
+	q := sqlc.From("orders").
+		Columns("id", "created_at").
+		Where(sqlc.Col("created_at").Between("2020-01-01", "2020-12-31"))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `created_at` FROM `orders` WHERE `created_at` BETWEEN ? AND ?", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, "2020-01-01", params[0])
+	assert.Equal(t, "2020-12-31", params[1])
+}
+
+func TestWhereNotBetweenExpression(t *testing.T) {
+	q := sqlc.From("users").
+		Columns("id", "name", "age").
+		Where(sqlc.Col("age").NotBetween(0, 17))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `age` FROM `users` WHERE `age` NOT BETWEEN ? AND ?", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, 0, params[0])
+	assert.Equal(t, 17, params[1])
+}
+
+func TestWhereLikeExpression(t *testing.T) {
+	q := sqlc.From("users").
+		Columns("id", "name", "email").
+		Where(sqlc.Col("email").Like("%@example.com"))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `email` FROM `users` WHERE `email` LIKE ?", sql)
+	assert.Len(t, params, 1)
+	assert.Equal(t, "%@example.com", params[0])
+}
+
+func TestWhereNotLikeExpression(t *testing.T) {
+	q := sqlc.From("users").
+		Columns("id", "name", "email").
+		Where(sqlc.Col("email").NotLike("%@spam.com"))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id`, `name`, `email` FROM `users` WHERE `email` NOT LIKE ?", sql)
+	assert.Len(t, params, 1)
+	assert.Equal(t, "%@spam.com", params[0])
+}
+
 func TestMixedWhereConditions(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "customer_id", "amount", "status").
 		Where("created_at >= ?", "2024-01-01").
-		Where(sqlg.Col("status").In("completed", "shipped")).
-		Where(sqlg.Col("amount").Gt(100)).
+		Where(sqlc.Col("status").In("completed", "shipped")).
+		Where(sqlc.Col("amount").Gt(100)).
 		Where("customer_id = ?", 42)
 
 	sql, params, err := q.ToSql()
@@ -336,11 +404,11 @@ func TestMixedWhereConditions(t *testing.T) {
 }
 
 func TestWhereWithAndExpression(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.And(
-			sqlg.Col("age").Gte(18),
-			sqlg.Col("status").Eq("active"),
+		Where(sqlc.And(
+			sqlc.Col("age").Gte(18),
+			sqlc.Col("status").Eq("active"),
 		))
 
 	sql, params, err := q.ToSql()
@@ -353,11 +421,11 @@ func TestWhereWithAndExpression(t *testing.T) {
 }
 
 func TestWhereWithOrExpression(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "status").
-		Where(sqlg.Or(
-			sqlg.Col("status").Eq("completed"),
-			sqlg.Col("status").Eq("shipped"),
+		Where(sqlc.Or(
+			sqlc.Col("status").Eq("completed"),
+			sqlc.Col("status").Eq("shipped"),
 		))
 
 	sql, params, err := q.ToSql()
@@ -370,9 +438,9 @@ func TestWhereWithOrExpression(t *testing.T) {
 }
 
 func TestWhereWithNotExpression(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Not(sqlg.Col("status").Eq("deleted")))
+		Where(sqlc.Not(sqlc.Col("status").Eq("deleted")))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -384,16 +452,16 @@ func TestWhereWithNotExpression(t *testing.T) {
 
 func TestWhereWithNestedLogicalExpressions(t *testing.T) {
 	// (status = 'active' AND age >= 18) OR (status = 'premium' AND age >= 21)
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Or(
-			sqlg.And(
-				sqlg.Col("status").Eq("active"),
-				sqlg.Col("age").Gte(18),
+		Where(sqlc.Or(
+			sqlc.And(
+				sqlc.Col("status").Eq("active"),
+				sqlc.Col("age").Gte(18),
 			),
-			sqlg.And(
-				sqlg.Col("status").Eq("premium"),
-				sqlg.Col("age").Gte(21),
+			sqlc.And(
+				sqlc.Col("status").Eq("premium"),
+				sqlc.Col("age").Gte(21),
 			),
 		))
 
@@ -410,13 +478,13 @@ func TestWhereWithNestedLogicalExpressions(t *testing.T) {
 
 func TestWhereWithComplexLogicalExpressions(t *testing.T) {
 	// status IN ('completed', 'shipped') AND NOT (amount < 10 OR discount > 50)
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "amount").
-		Where(sqlg.And(
-			sqlg.Col("status").In("completed", "shipped"),
-			sqlg.Not(sqlg.Or(
-				sqlg.Col("amount").Lt(10),
-				sqlg.Col("discount").Gt(50),
+		Where(sqlc.And(
+			sqlc.Col("status").In("completed", "shipped"),
+			sqlc.Not(sqlc.Or(
+				sqlc.Col("amount").Lt(10),
+				sqlc.Col("discount").Gt(50),
 			)),
 		))
 
@@ -433,14 +501,14 @@ func TestWhereWithComplexLogicalExpressions(t *testing.T) {
 
 func TestMixedWhereWithLogicalExpressions(t *testing.T) {
 	// Mix string-based and expression-based conditions
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "customer_id", "amount").
 		Where("created_at >= ?", "2024-01-01").
-		Where(sqlg.Or(
-			sqlg.Col("status").Eq("completed"),
-			sqlg.Col("status").Eq("shipped"),
+		Where(sqlc.Or(
+			sqlc.Col("status").Eq("completed"),
+			sqlc.Col("status").Eq("shipped"),
 		)).
-		Where(sqlg.Col("amount").Gt(100))
+		Where(sqlc.Col("amount").Gt(100))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -454,7 +522,7 @@ func TestMixedWhereWithLogicalExpressions(t *testing.T) {
 }
 
 func TestSelectWithInvalidType(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", 123, "name") // 123 is an invalid type
 
 	sql, params, err := q.ToSql()
@@ -467,7 +535,7 @@ func TestSelectWithInvalidType(t *testing.T) {
 }
 
 func TestWhereWithInvalidType(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		Where(123) // 123 is an invalid type
 
@@ -481,7 +549,7 @@ func TestWhereWithInvalidType(t *testing.T) {
 }
 
 func TestGroupByWithInvalidType(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("customer_id", "COUNT(*)").
 		GroupBy("customer_id", 456) // 456 is an invalid type
 
@@ -495,7 +563,7 @@ func TestGroupByWithInvalidType(t *testing.T) {
 }
 
 func TestOrderByWithInvalidType(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		OrderBy("id", true) // true is an invalid type
 
@@ -510,7 +578,7 @@ func TestOrderByWithInvalidType(t *testing.T) {
 
 func TestErrorPersistsAcrossCalls(t *testing.T) {
 	// Create a query with an error
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", 123) // Invalid type
 
 	// Chain more methods - error should persist
@@ -557,7 +625,7 @@ type CompositeStruct struct {
 }
 
 func TestForTypeSimple(t *testing.T) {
-	q := sqlg.From("users").ForType(User{})
+	q := sqlc.From("users").ForType(User{})
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -567,7 +635,7 @@ func TestForTypeSimple(t *testing.T) {
 }
 
 func TestForTypeMultipleFields(t *testing.T) {
-	q := sqlg.From("products").ForType(Product{})
+	q := sqlc.From("products").ForType(Product{})
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -577,7 +645,7 @@ func TestForTypeMultipleFields(t *testing.T) {
 }
 
 func TestForTypeWithWhere(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		ForType(User{}).
 		Where("status = ?", "active")
 
@@ -590,7 +658,7 @@ func TestForTypeWithWhere(t *testing.T) {
 }
 
 func TestForTypeWithOrderByLimit(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		ForType(Product{}).
 		Where("price > ?", 100).
 		OrderBy("price DESC").
@@ -606,7 +674,7 @@ func TestForTypeWithOrderByLimit(t *testing.T) {
 }
 
 func TestForTypePartialTags(t *testing.T) {
-	q := sqlg.From("items").ForType(PartialStruct{})
+	q := sqlc.From("items").ForType(PartialStruct{})
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -617,7 +685,7 @@ func TestForTypePartialTags(t *testing.T) {
 }
 
 func TestForTypeWithPointer(t *testing.T) {
-	q := sqlg.From("users").ForType(&User{})
+	q := sqlc.From("users").ForType(&User{})
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -627,7 +695,7 @@ func TestForTypeWithPointer(t *testing.T) {
 }
 
 func TestForTypeEmbedded(t *testing.T) {
-	q := sqlg.From("composite").ForType(CompositeStruct{})
+	q := sqlc.From("composite").ForType(CompositeStruct{})
 
 	sql, _, err := q.ToSql()
 	require.NoError(t, err)
@@ -638,7 +706,7 @@ func TestForTypeEmbedded(t *testing.T) {
 }
 
 func TestForTypeWithAlias(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		As("u").
 		ForType(User{})
 
@@ -650,7 +718,7 @@ func TestForTypeWithAlias(t *testing.T) {
 }
 
 func TestForTypeImmutability(t *testing.T) {
-	base := sqlg.From("users")
+	base := sqlc.From("users")
 
 	q1 := base.ForType(User{})
 	q2 := base.ForType(Product{})
@@ -670,7 +738,7 @@ func TestForTypeImmutability(t *testing.T) {
 
 func TestForTypeOverridesSelect(t *testing.T) {
 	// ForType should replace any previous Select calls
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("only_this").
 		ForType(User{})
 
@@ -683,7 +751,7 @@ func TestForTypeOverridesSelect(t *testing.T) {
 }
 
 func TestColumnWithString(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		Column("email")
 
@@ -695,9 +763,9 @@ func TestColumnWithString(t *testing.T) {
 }
 
 func TestColumnWithExpression(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Column(sqlg.Col("age").Max().As("max_age"))
+		Column(sqlc.Col("age").Max().As("max_age"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -707,7 +775,7 @@ func TestColumnWithExpression(t *testing.T) {
 }
 
 func TestColumnMultipleCalls(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id").
 		Column("name").
 		Column("email").
@@ -721,10 +789,10 @@ func TestColumnMultipleCalls(t *testing.T) {
 }
 
 func TestColumnAfterForType(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		ForType(User{}).
 		Column("created_at").
-		Column(sqlg.Col("updated_at"))
+		Column(sqlc.Col("updated_at"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -734,7 +802,7 @@ func TestColumnAfterForType(t *testing.T) {
 }
 
 func TestColumnWithInvalidType(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		Column(12345)
 
@@ -748,10 +816,10 @@ func TestColumnWithInvalidType(t *testing.T) {
 }
 
 func TestColumnWithWhere(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "customer_id").
 		Column("amount").
-		Column(sqlg.Col("status")).
+		Column(sqlc.Col("status")).
 		Where("created_at >= ?", "2024-01-01")
 
 	sql, params, err := q.ToSql()
@@ -763,7 +831,7 @@ func TestColumnWithWhere(t *testing.T) {
 }
 
 func TestColumnImmutability(t *testing.T) {
-	base := sqlg.From("users").Columns("id", "name")
+	base := sqlc.From("users").Columns("id", "name")
 
 	q1 := base.Column("email")
 	q2 := base.Column("phone")
@@ -783,7 +851,7 @@ func TestColumnImmutability(t *testing.T) {
 
 func TestColumnEmptyBase(t *testing.T) {
 	// Column should work even without prior Select
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Column("id").
 		Column("name")
 
@@ -797,7 +865,7 @@ func TestColumnEmptyBase(t *testing.T) {
 func TestWithClient(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -818,7 +886,7 @@ func TestWithClientImmutability(t *testing.T) {
 	mock1 := mocks.NewClient(t)
 	mock2 := mocks.NewClient(t)
 
-	base := sqlg.From("users").Columns("id", "name")
+	base := sqlc.From("users").Columns("id", "name")
 	q1 := base.WithClient(mock1)
 	q2 := base.WithClient(mock2)
 
@@ -837,7 +905,7 @@ func TestWithClientImmutability(t *testing.T) {
 }
 
 func TestExecWithoutClient(t *testing.T) {
-	q := sqlg.From("users").Columns("id", "name")
+	q := sqlc.From("users").Columns("id", "name")
 
 	ctx := context.Background()
 	var dest []User
@@ -851,7 +919,7 @@ func TestExecWithoutClient(t *testing.T) {
 func TestExecWithValidClient(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name", "email").
 		Where("status = ?", "active").
 		WithClient(mockClient)
@@ -870,7 +938,7 @@ func TestExecUsesForType(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
 	// Don't specify columns - Exec should use ForType to extract them
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Where("status = ?", "active").
 		WithClient(mockClient)
 
@@ -888,7 +956,7 @@ func TestExecUsesForType(t *testing.T) {
 func TestExecWithClientError(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -908,7 +976,7 @@ func TestExecWithQueryBuildError(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
 	// Create a query with invalid type to cause build error
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", 123). // Invalid type
 		WithClient(mockClient)
 
@@ -925,9 +993,9 @@ func TestExecWithQueryBuildError(t *testing.T) {
 func TestExecWithComplexQuery(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("orders").
-		Where(sqlg.Col("status").In("completed", "shipped")).
-		Where(sqlg.Col("amount").Gte(100)).
+	q := sqlc.From("orders").
+		Where(sqlc.Col("status").In("completed", "shipped")).
+		Where(sqlc.Col("amount").Gte(100)).
 		OrderBy("created_at DESC").
 		Limit(10).
 		WithClient(mockClient)
@@ -950,7 +1018,7 @@ func TestExecWithComplexQuery(t *testing.T) {
 }
 
 func TestJsonExpressionWithArrow(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name", "metadata->'$.email'")
 
 	sql, params, err := q.ToSql()
@@ -961,7 +1029,7 @@ func TestJsonExpressionWithArrow(t *testing.T) {
 }
 
 func TestJsonExpressionWithDoubleArrow(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "data->>'$.address.city'")
 
 	sql, params, err := q.ToSql()
@@ -972,7 +1040,7 @@ func TestJsonExpressionWithDoubleArrow(t *testing.T) {
 }
 
 func TestJsonExpressionInWhere(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		Where("metadata->'$.status' = ?", "active")
 
@@ -985,7 +1053,7 @@ func TestJsonExpressionInWhere(t *testing.T) {
 }
 
 func TestJsonExpressionInOrderBy(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name").
 		OrderBy("data->'$.priority' DESC")
 
@@ -997,7 +1065,7 @@ func TestJsonExpressionInOrderBy(t *testing.T) {
 }
 
 func TestTableQualifiedJsonExpression(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		As("u").
 		Columns("u.id", "u.metadata->'$.email'")
 
@@ -1009,7 +1077,7 @@ func TestTableQualifiedJsonExpression(t *testing.T) {
 }
 
 func TestNestedJsonPath(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "data->'$.customer.address.zipcode'")
 
 	sql, params, err := q.ToSql()
@@ -1020,7 +1088,7 @@ func TestNestedJsonPath(t *testing.T) {
 }
 
 func TestMultipleJsonExpressions(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "metadata->'$.name'", "metadata->'$.price'", "settings->>'$.enabled'")
 
 	sql, params, err := q.ToSql()
@@ -1031,8 +1099,8 @@ func TestMultipleJsonExpressions(t *testing.T) {
 }
 
 func TestJsonExpressionInGroupBy(t *testing.T) {
-	q := sqlg.From("events").
-		Columns("data->'$.category'", sqlg.Col("*").Count().As("count")).
+	q := sqlc.From("events").
+		Columns("data->'$.category'", sqlc.Col("*").Count().As("count")).
 		GroupBy("data->'$.category'")
 
 	sql, params, err := q.ToSql()
@@ -1043,7 +1111,7 @@ func TestJsonExpressionInGroupBy(t *testing.T) {
 }
 
 func TestComplexQueryWithJsonExpressions(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name", "metadata->'$.email'", "settings->>'$.timezone'").
 		Where("metadata->'$.status' = ?", "active").
 		Where("settings->>'$.premium' = ?", "true").
@@ -1061,7 +1129,7 @@ func TestComplexQueryWithJsonExpressions(t *testing.T) {
 }
 
 func TestOrderByWithAscString(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		OrderBy("created_at ASC")
 
@@ -1073,9 +1141,9 @@ func TestOrderByWithAscString(t *testing.T) {
 }
 
 func TestOrderByWithAscExpression(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price").
-		OrderBy(sqlg.Col("price").Asc())
+		OrderBy(sqlc.Col("price").Asc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1085,9 +1153,9 @@ func TestOrderByWithAscExpression(t *testing.T) {
 }
 
 func TestOrderByWithDescExpression(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price").
-		OrderBy(sqlg.Col("price").Desc())
+		OrderBy(sqlc.Col("price").Desc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1097,9 +1165,9 @@ func TestOrderByWithDescExpression(t *testing.T) {
 }
 
 func TestOrderByMultipleWithMixedDirections(t *testing.T) {
-	q := sqlg.From("orders").
+	q := sqlc.From("orders").
 		Columns("id", "customer_id", "created_at").
-		OrderBy(sqlg.Col("customer_id").Asc(), sqlg.Col("created_at").Desc())
+		OrderBy(sqlc.Col("customer_id").Asc(), sqlc.Col("created_at").Desc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1109,9 +1177,9 @@ func TestOrderByMultipleWithMixedDirections(t *testing.T) {
 }
 
 func TestOrderByMixedStringAndExpression(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price", "category").
-		OrderBy("category ASC", sqlg.Col("price").Desc(), "name")
+		OrderBy("category ASC", sqlc.Col("price").Desc(), "name")
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1124,7 +1192,7 @@ func TestSelectWithoutExplicitColumns(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
 	// No Columns() call - should auto-detect from User struct
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Where("status = ?", "active").
 		WithClient(mockClient)
 
@@ -1143,7 +1211,7 @@ func TestGetWithoutExplicitColumns(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
 	// No Columns() call - should auto-detect from User struct
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Where("id = ?", 123).
 		WithClient(mockClient)
 
@@ -1162,7 +1230,7 @@ func TestGetWithExplicitColumns(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
 	// Explicit Columns() - should NOT call ForType
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		Where("id = ?", 456).
 		WithClient(mockClient)
@@ -1179,9 +1247,9 @@ func TestGetWithExplicitColumns(t *testing.T) {
 }
 
 func TestLitInOrderBy(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price").
-		OrderBy(sqlg.Lit("1"))
+		OrderBy(sqlc.Lit("1"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1191,9 +1259,9 @@ func TestLitInOrderBy(t *testing.T) {
 }
 
 func TestLitWithAsc(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price").
-		OrderBy(sqlg.Lit("1").Asc())
+		OrderBy(sqlc.Lit("1").Asc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1203,9 +1271,9 @@ func TestLitWithAsc(t *testing.T) {
 }
 
 func TestLitWithDesc(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price").
-		OrderBy(sqlg.Lit("2").Desc())
+		OrderBy(sqlc.Lit("2").Desc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1215,9 +1283,9 @@ func TestLitWithDesc(t *testing.T) {
 }
 
 func TestLitMultipleOrderBy(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("category", "name", "price").
-		OrderBy(sqlg.Lit("1").Asc(), sqlg.Lit("3").Desc())
+		OrderBy(sqlc.Lit("1").Asc(), sqlc.Lit("3").Desc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1227,9 +1295,9 @@ func TestLitMultipleOrderBy(t *testing.T) {
 }
 
 func TestLitMixedWithColumnOrderBy(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price", "category").
-		OrderBy(sqlg.Col("category").Asc(), sqlg.Lit("3").Desc())
+		OrderBy(sqlc.Col("category").Asc(), sqlc.Lit("3").Desc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1239,8 +1307,8 @@ func TestLitMixedWithColumnOrderBy(t *testing.T) {
 }
 
 func TestLitInSelect(t *testing.T) {
-	q := sqlg.From("products").
-		Columns("id", "name", sqlg.Lit("'literal_value'").As("constant"))
+	q := sqlc.From("products").
+		Columns("id", "name", sqlc.Lit("'literal_value'").As("constant"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1250,9 +1318,9 @@ func TestLitInSelect(t *testing.T) {
 }
 
 func TestLitInGroupBy(t *testing.T) {
-	q := sqlg.From("orders").
-		Columns(sqlg.Col("status"), sqlg.Col("*").Count().As("count")).
-		GroupBy(sqlg.Lit("1"))
+	q := sqlc.From("orders").
+		Columns(sqlc.Col("status"), sqlc.Col("*").Count().As("count")).
+		GroupBy(sqlc.Lit("1"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1262,9 +1330,9 @@ func TestLitInGroupBy(t *testing.T) {
 }
 
 func TestLitWithInt(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price").
-		OrderBy(sqlg.Lit(1).Asc())
+		OrderBy(sqlc.Lit(1).Asc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1274,9 +1342,9 @@ func TestLitWithInt(t *testing.T) {
 }
 
 func TestLitWithIntDesc(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name", "price").
-		OrderBy(sqlg.Lit(2).Desc())
+		OrderBy(sqlc.Lit(2).Desc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1286,9 +1354,9 @@ func TestLitWithIntDesc(t *testing.T) {
 }
 
 func TestLitWithMultipleInts(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("category", "name", "price").
-		OrderBy(sqlg.Lit(1).Asc(), sqlg.Lit(3).Desc())
+		OrderBy(sqlc.Lit(1).Asc(), sqlc.Lit(3).Desc())
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1298,8 +1366,8 @@ func TestLitWithMultipleInts(t *testing.T) {
 }
 
 func TestLitWithFloat(t *testing.T) {
-	q := sqlg.From("products").
-		Columns("id", "name", sqlg.Lit(3.14).As("pi"))
+	q := sqlc.From("products").
+		Columns("id", "name", sqlc.Lit(3.14).As("pi"))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1309,9 +1377,9 @@ func TestLitWithFloat(t *testing.T) {
 }
 
 func TestLitWithInt64(t *testing.T) {
-	q := sqlg.From("products").
+	q := sqlc.From("products").
 		Columns("id", "name").
-		OrderBy(sqlg.Lit(int64(1)))
+		OrderBy(sqlc.Lit(int64(1)))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1321,9 +1389,9 @@ func TestLitWithInt64(t *testing.T) {
 }
 
 func TestLitGroupByWithInt(t *testing.T) {
-	q := sqlg.From("orders").
-		Columns(sqlg.Col("status"), sqlg.Col("*").Count().As("count")).
-		GroupBy(sqlg.Lit(1))
+	q := sqlc.From("orders").
+		Columns(sqlc.Col("status"), sqlc.Col("*").Count().As("count")).
+		GroupBy(sqlc.Lit(1))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1333,9 +1401,9 @@ func TestLitGroupByWithInt(t *testing.T) {
 }
 
 func TestEqMapWithSingleCondition(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Eq{"status": "active"})
+		Where(sqlc.Eq{"status": "active"})
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1345,9 +1413,9 @@ func TestEqMapWithSingleCondition(t *testing.T) {
 }
 
 func TestEqMapWithMultipleConditions(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Eq{
+		Where(sqlc.Eq{
 			"status": "active",
 			"age":    21,
 			"role":   "admin",
@@ -1362,9 +1430,9 @@ func TestEqMapWithMultipleConditions(t *testing.T) {
 }
 
 func TestEqMapWithEmptyMap(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Eq{})
+		Where(sqlc.Eq{})
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1375,11 +1443,11 @@ func TestEqMapWithEmptyMap(t *testing.T) {
 }
 
 func TestEqMapWithOtherConditions(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.And(
-			sqlg.Col("status").Eq("active"),
-			sqlg.Col("age").Gt(18),
+		Where(sqlc.And(
+			sqlc.Col("status").Eq("active"),
+			sqlc.Col("age").Gt(18),
 		))
 
 	sql, params, err := q.ToSql()
@@ -1392,9 +1460,9 @@ func TestEqMapWithOtherConditions(t *testing.T) {
 func TestEqMapSortingIsConsistent(t *testing.T) {
 	// Run the same query multiple times to ensure sorting is consistent
 	for i := 0; i < 5; i++ {
-		q := sqlg.From("users").
+		q := sqlc.From("users").
 			Columns("id").
-			Where(sqlg.Eq{
+			Where(sqlc.Eq{
 				"z_column": "z",
 				"a_column": "a",
 				"m_column": "m",
@@ -1410,9 +1478,9 @@ func TestEqMapSortingIsConsistent(t *testing.T) {
 }
 
 func TestEqTypeDirectly(t *testing.T) {
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
-		Where(sqlg.Eq{"status": "active", "verified": true})
+		Where(sqlc.Eq{"status": "active", "verified": true})
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
@@ -1425,7 +1493,7 @@ func TestEqTypeDirectly(t *testing.T) {
 func TestSelectWithNonPointer(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -1436,13 +1504,13 @@ func TestSelectWithNonPointer(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Select: destination must be a pointer")
-	assert.Contains(t, err.Error(), "use &[]sqlg_test.User instead")
+	assert.Contains(t, err.Error(), "use &[]sqlc_test.User instead")
 }
 
 func TestSelectWithNil(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -1457,7 +1525,7 @@ func TestSelectWithNil(t *testing.T) {
 func TestSelectWithNilPointer(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -1473,7 +1541,7 @@ func TestSelectWithNilPointer(t *testing.T) {
 func TestGetWithNonPointer(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -1484,13 +1552,13 @@ func TestGetWithNonPointer(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Get: destination must be a pointer")
-	assert.Contains(t, err.Error(), "use &sqlg_test.User instead")
+	assert.Contains(t, err.Error(), "use &sqlc_test.User instead")
 }
 
 func TestGetWithNil(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -1505,7 +1573,7 @@ func TestGetWithNil(t *testing.T) {
 func TestGetWithNilPointer(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -1521,7 +1589,7 @@ func TestGetWithNilPointer(t *testing.T) {
 func TestGetWithSlice(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
-	q := sqlg.From("users").
+	q := sqlc.From("users").
 		Columns("id", "name").
 		WithClient(mockClient)
 
@@ -1533,4 +1601,52 @@ func TestGetWithSlice(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Get: destination must be a single struct, not a slice")
 	assert.Contains(t, err.Error(), "Use Select() for multiple results")
+}
+
+func TestSelectWithPointerToPrimitive(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	q := sqlc.From("users").
+		Columns("id", "name").
+		WithClient(mockClient)
+
+	ctx := context.Background()
+	var id int
+	err := q.Select(ctx, &id)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Select: destination must be a pointer to a struct or slice")
+	assert.Contains(t, err.Error(), "got pointer to int")
+}
+
+func TestGetWithPointerToPrimitive(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	q := sqlc.From("users").
+		Columns("id", "name").
+		WithClient(mockClient)
+
+	ctx := context.Background()
+	var name string
+	err := q.Get(ctx, &name)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Get: destination must be a pointer to a struct or slice")
+	assert.Contains(t, err.Error(), "got pointer to string")
+}
+
+func TestSelectWithPointerToMap(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	q := sqlc.From("users").
+		Columns("id", "name").
+		WithClient(mockClient)
+
+	ctx := context.Background()
+	var m map[string]any
+	err := q.Select(ctx, &m)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Select: destination must be a pointer to a struct or slice")
+	assert.Contains(t, err.Error(), "got pointer to map")
 }

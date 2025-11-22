@@ -13,6 +13,6 @@ require-template-schema-exists: true
 template: testify
 template-schema: '{{.Template}}.schema.json'
 packages:
-  github.com/gosoline-project/sqlg:
+  github.com/gosoline-project/sqlc:
     config:
       all: true

@@ -1,4 +1,4 @@
-package sqlg
+package sqlc
 
 import (
 	"context"
@@ -16,8 +16,10 @@ import (
 type connectionCtxKey string
 
 func ProvideConnection(ctx context.Context, config cfg.Config, logger log.Logger, name string) (*sqlx.DB, error) {
-	var err error
-	var settings *Settings
+	var (
+		err      error
+		settings *Settings
+	)
 
 	if settings, err = ReadSettings(config, name); err != nil {
 		return nil, err
@@ -27,9 +29,11 @@ func ProvideConnection(ctx context.Context, config cfg.Config, logger log.Logger
 }
 
 func NewConnection(ctx context.Context, config cfg.Config, logger log.Logger, name string) (*sqlx.DB, error) {
-	var err error
-	var con *sqlx.DB
-	var settings *Settings
+	var (
+		err      error
+		con      *sqlx.DB
+		settings *Settings
+	)
 
 	if settings, err = ReadSettings(config, name); err != nil {
 		return nil, err
@@ -49,8 +53,10 @@ func ProvideConnectionFromSettings(ctx context.Context, logger log.Logger, name 
 }
 
 func NewConnectionFromSettings(ctx context.Context, logger log.Logger, name string, settings *Settings) (*sqlx.DB, error) {
-	var err error
-	var connection *sqlx.DB
+	var (
+		err        error
+		connection *sqlx.DB
+	)
 
 	if connection, err = NewConnectionWithInterfaces(logger, settings); err != nil {
 		return nil, fmt.Errorf("can not create connection: %w", err)

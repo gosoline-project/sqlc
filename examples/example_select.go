@@ -3,13 +3,13 @@ package main
 import (
 	"fmt"
 
-	"github.com/gosoline-project/sqlg"
+	"github.com/gosoline-project/sqlc"
 )
 
-// ExampleUsage demonstrates how to use the query builder
-func ExampleUsage() {
+// ExampleSelect demonstrates how to use the query builder
+func ExampleSelect() {
 	// Simple select with string-based WHERE
-	q1 := sqlg.From("users").
+	q1 := sqlc.From("users").
 		Columns("id", "name", "email").
 		Where("status = ?", "active").
 		OrderBy("created_at DESC").
@@ -27,10 +27,10 @@ func ExampleUsage() {
 	fmt.Println()
 
 	// Expression-based WHERE with In()
-	q2 := sqlg.From("orders").
+	q2 := sqlc.From("orders").
 		Columns("id", "customer_id", "status", "amount").
-		Where(sqlg.Col("status").In("completed", "shipped")).
-		Where(sqlg.Col("amount").Gte(100)).
+		Where(sqlc.Col("status").In("completed", "shipped")).
+		Where(sqlc.Col("amount").Gte(100)).
 		OrderBy("created_at DESC").
 		Limit(50)
 
@@ -46,16 +46,16 @@ func ExampleUsage() {
 	fmt.Println()
 
 	// Using expressions with aggregations (like Flink's $("col").count().as("alias"))
-	q3 := sqlg.From("orders").
+	q3 := sqlc.From("orders").
 		Columns(
-			sqlg.Col("customer_id"),
-			sqlg.Col("*").Count().As("order_count"),
-			sqlg.Col("amount").Sum().As("total_amount"),
+			sqlc.Col("customer_id"),
+			sqlc.Col("*").Count().As("order_count"),
+			sqlc.Col("amount").Sum().As("total_amount"),
 		).
-		Where(sqlg.Col("status").Eq("completed")).
+		Where(sqlc.Col("status").Eq("completed")).
 		GroupBy("customer_id").
 		Having("SUM(amount) > ?", 1000).
-		OrderBy(sqlg.Col("total_amount").Desc()).
+		OrderBy(sqlc.Col("total_amount").Desc()).
 		Limit(100)
 
 	sql3, params3, err := q3.ToSql()
@@ -70,12 +70,12 @@ func ExampleUsage() {
 	fmt.Println()
 
 	// All comparison operators
-	q4 := sqlg.From("products").
+	q4 := sqlc.From("products").
 		Columns("id", "name", "price", "category").
-		Where(sqlg.Col("price").Gt(10)).
-		Where(sqlg.Col("price").Lte(1000)).
-		Where(sqlg.Col("category").NotEq("discontinued")).
-		Where(sqlg.Col("name").Like("%phone%"))
+		Where(sqlc.Col("price").Gt(10)).
+		Where(sqlc.Col("price").Lte(1000)).
+		Where(sqlc.Col("category").NotEq("discontinued")).
+		Where(sqlc.Col("name").Like("%phone%"))
 
 	sql4, params4, err := q4.ToSql()
 	if err != nil {
@@ -89,10 +89,10 @@ func ExampleUsage() {
 	fmt.Println()
 
 	// IS NULL / IS NOT NULL
-	q5 := sqlg.From("users").
+	q5 := sqlc.From("users").
 		Columns("id", "name", "email").
-		Where(sqlg.Col("deleted_at").IsNull()).
-		Where(sqlg.Col("email").IsNotNull())
+		Where(sqlc.Col("deleted_at").IsNull()).
+		Where(sqlc.Col("email").IsNotNull())
 
 	sql5, params5, err := q5.ToSql()
 	if err != nil {
@@ -106,19 +106,19 @@ func ExampleUsage() {
 	fmt.Println()
 
 	// Mixed: string-based and expression-based WHERE
-	q6 := sqlg.From("sales").
+	q6 := sqlc.From("sales").
 		As("s").
 		Columns(
 			"s.region",
-			sqlg.Col("s.revenue").Sum().As("total_revenue"),
-			sqlg.Col("*").Count().As("sale_count"),
+			sqlc.Col("s.revenue").Sum().As("total_revenue"),
+			sqlc.Col("*").Count().As("sale_count"),
 		).
 		Where("s.sale_date >= ?", "2024-01-01").
-		Where(sqlg.Col("s.status").In("completed", "verified")).
-		Where(sqlg.Col("s.revenue").Gt(0)).
+		Where(sqlc.Col("s.status").In("completed", "verified")).
+		Where(sqlc.Col("s.revenue").Gt(0)).
 		GroupBy("s.region").
 		Having("COUNT(*) >= ?", 10).
-		OrderBy(sqlg.Col("total_revenue").Desc()).
+		OrderBy(sqlc.Col("total_revenue").Desc()).
 		Limit(10)
 
 	sql6, params6, err := q6.ToSql()
@@ -130,8 +130,5 @@ func ExampleUsage() {
 	fmt.Println("Query 6 (mixed string and expression WHERE):")
 	fmt.Println(sql6)
 	fmt.Println("Params:", params6)
-}
-
-func main() {
-	ExampleUsage()
+	fmt.Println()
 }

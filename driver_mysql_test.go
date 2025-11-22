@@ -1,4 +1,4 @@
-package sqlg_test
+package sqlc_test
 
 import (
 	"testing"

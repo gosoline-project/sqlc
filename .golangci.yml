@@ -9,6 +9,8 @@ run:
     - integration
     - fixtures
   modules-download-mode: readonly
+  skip-dirs:
+    - examples
 
 output:
   formats:
@@ -46,6 +48,8 @@ linters:
     - whitespace # Whitespace is a linter that checks for unnecessary newlines at the start and end of functions, if, for, etc.
 
   exclusions:
+    paths:
+      - examples/
     rules:
       - linters:
           - dogsled

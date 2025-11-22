@@ -2,7 +2,7 @@
 // github.com/vektra/mockery
 // template: testify
 
-package sqlg
+package sqlc
 
 import (
 	mock "github.com/stretchr/testify/mock"

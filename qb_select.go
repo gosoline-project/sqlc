@@ -1,11 +1,10 @@
-package sqlg
+package sqlc
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 	"strings"
 
 	"github.com/justtrackio/gosoline/pkg/refl"
@@ -25,20 +24,18 @@ import (
 //		Limit(10)
 //	sql, args, err := query.ToSql()
 type SelectQueryBuilder struct {
-	client         Client
-	table          string
-	tableAlias     string
-	projections    []string
-	distinct       bool
-	whereClauses   []string
-	whereParams    []any
-	groupByCols    []string
-	havingClauses  []string
-	havingParams   []any
-	orderByClauses []string
-	limitValue     *int
-	offsetValue    *int
-	err            error
+	client       Querier
+	table        string
+	tableAlias   string
+	projections  []string
+	distinct     bool
+	sqlerWhere   *SqlerWhere
+	sqlerGroupBy *SqlerGroupBy
+	sqlerHaving  *SqlerHaving
+	sqlerOrderBy *SqlerOrderBy
+	limitValue   *int
+	offsetValue  *int
+	err          error
 }
 
 // From creates a new SelectQueryBuilder for the specified table.
@@ -50,14 +47,12 @@ type SelectQueryBuilder struct {
 //	From("orders").As("o")          // SELECT * FROM `orders` AS o
 func From(table string) *SelectQueryBuilder {
 	return &SelectQueryBuilder{
-		table:          table,
-		projections:    []string{},
-		whereClauses:   []string{},
-		whereParams:    []any{},
-		groupByCols:    []string{},
-		havingClauses:  []string{},
-		havingParams:   []any{},
-		orderByClauses: []string{},
+		table:        table,
+		projections:  []string{},
+		sqlerWhere:   NewSqlerWhere(),
+		sqlerGroupBy: NewSqlerGroupBy(),
+		sqlerHaving:  NewSqlerHaving(),
+		sqlerOrderBy: NewSqlerOrderBy(),
 	}
 }
 
@@ -65,19 +60,43 @@ func From(table string) *SelectQueryBuilder {
 // This is used internally to implement the immutable builder pattern.
 // Each builder method creates a copy, modifies it, and returns the new copy.
 func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
+	// Copy the SqlerWhere by creating a new instance with copied slices
+	newSqlerWhere := &SqlerWhere{
+		clauses: append([]string{}, q.sqlerWhere.clauses...),
+		params:  append([]any{}, q.sqlerWhere.params...),
+		err:     q.sqlerWhere.err,
+	}
+
+	// Copy the SqlerGroupBy
+	newSqlerGroupBy := &SqlerGroupBy{
+		clauses: append([]string{}, q.sqlerGroupBy.clauses...),
+		err:     q.sqlerGroupBy.err,
+	}
+
+	// Copy the SqlerHaving
+	newSqlerHaving := &SqlerHaving{
+		clauses: append([]string{}, q.sqlerHaving.clauses...),
+		params:  append([]any{}, q.sqlerHaving.params...),
+		err:     q.sqlerHaving.err,
+	}
+
+	// Copy the SqlerOrderBy
+	newSqlerOrderBy := &SqlerOrderBy{
+		clauses: append([]string{}, q.sqlerOrderBy.clauses...),
+		err:     q.sqlerOrderBy.err,
+	}
+
 	newQuery := &SelectQueryBuilder{
-		client:         q.client,
-		table:          q.table,
-		tableAlias:     q.tableAlias,
-		projections:    append([]string{}, q.projections...),
-		distinct:       q.distinct,
-		whereClauses:   append([]string{}, q.whereClauses...),
-		whereParams:    append([]any{}, q.whereParams...),
-		groupByCols:    append([]string{}, q.groupByCols...),
-		havingClauses:  append([]string{}, q.havingClauses...),
-		havingParams:   append([]any{}, q.havingParams...),
-		orderByClauses: append([]string{}, q.orderByClauses...),
-		err:            q.err,
+		client:       q.client,
+		table:        q.table,
+		tableAlias:   q.tableAlias,
+		projections:  append([]string{}, q.projections...),
+		distinct:     q.distinct,
+		sqlerWhere:   newSqlerWhere,
+		sqlerGroupBy: newSqlerGroupBy,
+		sqlerHaving:  newSqlerHaving,
+		sqlerOrderBy: newSqlerOrderBy,
+		err:          q.err,
 	}
 	if q.limitValue != nil {
 		val := *q.limitValue
@@ -99,7 +118,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 //
 //	query := From("users").WithClient(client).Limit(10)
 //	err := query.Select(ctx, &users)
-func (q *SelectQueryBuilder) WithClient(client Client) *SelectQueryBuilder {
+func (q *SelectQueryBuilder) WithClient(client Querier) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.client = client
 
@@ -236,51 +255,11 @@ func (q *SelectQueryBuilder) Distinct() *SelectQueryBuilder {
 //	Where(Eq{"status": "active", "role": "admin"})   // WHERE (`role` = ? AND `status` = ?)
 func (q *SelectQueryBuilder) Where(condition any, params ...any) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
+	newQuery.sqlerWhere.Where(condition, params...)
 
-	switch v := condition.(type) {
-	case string:
-		newQuery.whereClauses = append(newQuery.whereClauses, v)
-		newQuery.whereParams = append(newQuery.whereParams, params...)
-	case *Expression:
-		// Skip nil expressions (e.g., from Eq() with empty map)
-		if v == nil {
-			return newQuery
-		}
-		newQuery.whereClauses = append(newQuery.whereClauses, v.toConditionSQL())
-		newQuery.whereParams = append(newQuery.whereParams, v.collectParameters()...)
-	case Eq:
-		// Handle Eq map type - convert to expressions
-		if len(v) == 0 {
-			return newQuery // Empty map is a no-op
-		}
-
-		// Sort keys for deterministic SQL generation
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		// Create equality expressions for each key-value pair
-		expressions := make([]*Expression, len(keys))
-		for i, key := range keys {
-			expressions[i] = Col(key).Eq(v[key])
-		}
-
-		// Single condition doesn't need AND wrapping
-		var expr *Expression
-		if len(expressions) == 1 {
-			expr = expressions[0]
-		} else {
-			expr = And(expressions...)
-		}
-
-		newQuery.whereClauses = append(newQuery.whereClauses, expr.toConditionSQL())
-		newQuery.whereParams = append(newQuery.whereParams, expr.collectParameters()...)
-	default:
-		newQuery.err = fmt.Errorf("invalid type for Where condition: expected string or *Expression, got %T", condition)
-
-		return newQuery
+	// Propagate any error from SqlerWhere to the query builder
+	if newQuery.sqlerWhere.err != nil && newQuery.err == nil {
+		newQuery.err = newQuery.sqlerWhere.err
 	}
 
 	return newQuery
@@ -298,19 +277,11 @@ func (q *SelectQueryBuilder) Where(condition any, params ...any) *SelectQueryBui
 //	GroupBy(Col("DATE(created_at)"))            // GROUP BY DATE(created_at)
 func (q *SelectQueryBuilder) GroupBy(cols ...any) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
-	newQuery.groupByCols = []string{}
+	newQuery.sqlerGroupBy.GroupBy(cols...)
 
-	for i, col := range cols {
-		switch v := col.(type) {
-		case string:
-			newQuery.groupByCols = append(newQuery.groupByCols, quoteIdentifier(v))
-		case *Expression:
-			newQuery.groupByCols = append(newQuery.groupByCols, v.toSQL())
-		default:
-			newQuery.err = fmt.Errorf("invalid type for GroupBy argument %d: expected string or *Expression, got %T", i, col)
-
-			return newQuery
-		}
+	// Propagate any error from SqlerGroupBy to the query builder
+	if newQuery.sqlerGroupBy.err != nil && newQuery.err == nil {
+		newQuery.err = newQuery.sqlerGroupBy.err
 	}
 
 	return newQuery
@@ -318,17 +289,26 @@ func (q *SelectQueryBuilder) GroupBy(cols ...any) *SelectQueryBuilder {
 
 // Having adds a HAVING condition to the query (used with GROUP BY).
 // Multiple Having() calls are combined with AND.
-// Accepts a raw SQL string with placeholders and corresponding parameter values.
+// Accepts either:
+//   - A raw SQL string with placeholders and corresponding parameter values
+//   - An *Expression object that encapsulates the condition and parameters
+//
 // Returns a new query builder with the HAVING condition added.
 //
 // Example:
 //
-//	GroupBy("status").Having("COUNT(*) > ?", 10)    // HAVING COUNT(*) > ?
-//	Having("SUM(amount) > ?", 1000)                 // HAVING SUM(amount) > ?
-func (q *SelectQueryBuilder) Having(condition string, params ...any) *SelectQueryBuilder {
+//	GroupBy("status").Having("COUNT(*) > ?", 10)     // HAVING COUNT(*) > ?
+//	Having("SUM(amount) > ?", 1000)                  // HAVING SUM(amount) > ?
+//	Having(Col("COUNT(*)").Gt(10))                   // HAVING COUNT(*) > ?
+//	Having(And(Col("COUNT(*)").Gt(5), Col("SUM(amount)").Gt(1000))) // HAVING (COUNT(*) > ? AND SUM(amount) > ?)
+func (q *SelectQueryBuilder) Having(condition any, params ...any) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
-	newQuery.havingClauses = append(newQuery.havingClauses, condition)
-	newQuery.havingParams = append(newQuery.havingParams, params...)
+	newQuery.sqlerHaving.Having(condition, params...)
+
+	// Propagate any error from SqlerHaving to the query builder
+	if newQuery.sqlerHaving.err != nil && newQuery.err == nil {
+		newQuery.err = newQuery.sqlerHaving.err
+	}
 
 	return newQuery
 }
@@ -346,19 +326,11 @@ func (q *SelectQueryBuilder) Having(condition string, params ...any) *SelectQuer
 //	OrderBy(Col("name").Asc(), Col("id").Desc())    // ORDER BY `name` ASC, `id` DESC
 func (q *SelectQueryBuilder) OrderBy(cols ...any) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
-	newQuery.orderByClauses = []string{}
+	newQuery.sqlerOrderBy.OrderBy(cols...)
 
-	for i, col := range cols {
-		switch v := col.(type) {
-		case string:
-			newQuery.orderByClauses = append(newQuery.orderByClauses, quoteOrderByClause(v))
-		case *Expression:
-			newQuery.orderByClauses = append(newQuery.orderByClauses, v.toSQL())
-		default:
-			newQuery.err = fmt.Errorf("invalid type for OrderBy argument %d: expected string or *Expression, got %T", i, col)
-
-			return newQuery
-		}
+	// Propagate any error from SqlerOrderBy to the query builder
+	if newQuery.sqlerOrderBy.err != nil && newQuery.err == nil {
+		newQuery.err = newQuery.sqlerOrderBy.err
 	}
 
 	return newQuery
@@ -415,68 +387,81 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 		return "", nil, errors.New("table name is required")
 	}
 
-	var sql strings.Builder
-	params = []any{}
+	var sql string
+	var args []any
+	var sqlBuilder strings.Builder
 
 	// SELECT clause
-	sql.WriteString("SELECT ")
+	sqlBuilder.WriteString("SELECT ")
 	if q.distinct {
-		sql.WriteString("DISTINCT ")
+		sqlBuilder.WriteString("DISTINCT ")
 	}
 
 	if len(q.projections) == 0 {
-		sql.WriteString("*")
+		sqlBuilder.WriteString("*")
 	} else {
-		sql.WriteString(strings.Join(q.projections, ", "))
+		sqlBuilder.WriteString(strings.Join(q.projections, ", "))
 	}
 
 	// FROM clause
-	sql.WriteString(" FROM ")
-	sql.WriteString(quoteIdentifier(q.table))
+	sqlBuilder.WriteString(" FROM ")
+	sqlBuilder.WriteString(quoteIdentifier(q.table))
 	if q.tableAlias != "" {
-		sql.WriteString(" AS ")
-		sql.WriteString(q.tableAlias)
+		sqlBuilder.WriteString(" AS ")
+		sqlBuilder.WriteString(q.tableAlias)
 	}
 
 	// WHERE clause
-	if len(q.whereClauses) > 0 {
-		sql.WriteString(" WHERE ")
-		sql.WriteString(strings.Join(q.whereClauses, " AND "))
-		params = append(params, q.whereParams...)
+	if sql, args, err = q.sqlerWhere.ToSql(); err != nil {
+		return "", nil, fmt.Errorf("could not build WHERE clause: %w", err)
+	}
+	if sql != "" {
+		sqlBuilder.WriteString(" WHERE ")
+		sqlBuilder.WriteString(sql)
+		params = append(params, args...)
 	}
 
 	// GROUP BY clause
-	if len(q.groupByCols) > 0 {
-		sql.WriteString(" GROUP BY ")
-		sql.WriteString(strings.Join(q.groupByCols, ", "))
+	if sql, err = q.sqlerGroupBy.ToSql(); err != nil {
+		return "", nil, fmt.Errorf("could not build GROUP BY clause: %w", err)
+	}
+	if sql != "" {
+		sqlBuilder.WriteString(" GROUP BY ")
+		sqlBuilder.WriteString(sql)
 	}
 
 	// HAVING clause
-	if len(q.havingClauses) > 0 {
-		sql.WriteString(" HAVING ")
-		sql.WriteString(strings.Join(q.havingClauses, " AND "))
-		params = append(params, q.havingParams...)
+	if sql, args, err = q.sqlerHaving.ToSql(); err != nil {
+		return "", nil, fmt.Errorf("could not build HAVING clause: %w", err)
+	}
+	if sql != "" {
+		sqlBuilder.WriteString(" HAVING ")
+		sqlBuilder.WriteString(sql)
+		params = append(params, args...)
 	}
 
 	// ORDER BY clause
-	if len(q.orderByClauses) > 0 {
-		sql.WriteString(" ORDER BY ")
-		sql.WriteString(strings.Join(q.orderByClauses, ", "))
+	if sql, err = q.sqlerOrderBy.ToSql(); err != nil {
+		return "", nil, fmt.Errorf("could not build ORDER BY clause: %w", err)
+	}
+	if sql != "" {
+		sqlBuilder.WriteString(" ORDER BY ")
+		sqlBuilder.WriteString(sql)
 	}
 
 	// LIMIT clause
 	if q.limitValue != nil {
-		sql.WriteString(" LIMIT ?")
+		sqlBuilder.WriteString(" LIMIT ?")
 		params = append(params, *q.limitValue)
 	}
 
 	// OFFSET clause
 	if q.offsetValue != nil {
-		sql.WriteString(" OFFSET ?")
+		sqlBuilder.WriteString(" OFFSET ?")
 		params = append(params, *q.offsetValue)
 	}
 
-	return sql.String(), params, nil
+	return sqlBuilder.String(), params, nil
 }
 
 // Select executes the query and scans all results into the provided destination.
@@ -589,8 +574,8 @@ func (q *SelectQueryBuilder) Get(ctx context.Context, dest any) error {
 	return qb.client.Get(ctx, dest, sql, args...)
 }
 
-// validatePointer checks if the provided value is a pointer.
-// Returns a descriptive error if the value is not a pointer.
+// validatePointer checks if the provided value is a pointer to a struct or slice.
+// Returns a descriptive error if the value is not a valid pointer.
 func validatePointer(v any, funcName string) error {
 	if v == nil {
 		return fmt.Errorf("%s: destination cannot be nil", funcName)
@@ -603,6 +588,13 @@ func validatePointer(v any, funcName string) error {
 
 	if rv.IsNil() {
 		return fmt.Errorf("%s: destination pointer cannot be nil", funcName)
+	}
+
+	// Check that the pointer points to a struct or slice
+	elem := rv.Elem()
+	elemKind := elem.Kind()
+	if elemKind != reflect.Struct && elemKind != reflect.Slice {
+		return fmt.Errorf("%s: destination must be a pointer to a struct or slice, got pointer to %s", funcName, elemKind)
 	}
 
 	return nil

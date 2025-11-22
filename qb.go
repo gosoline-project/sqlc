@@ -1,4 +1,4 @@
-package sqlg
+package sqlc
 
 const (
 	// dbStructTag is the struct tag name used to identify database column mappings.
@@ -27,7 +27,7 @@ const (
 //	users := []User{}
 //	err := qb.From("users").Where("status = ?", "active").Select(ctx, &users)
 type QueryBuilder struct {
-	client Client
+	client Querier
 }
 
 // From creates a new SelectQueryBuilder for the specified table with the client already attached.
@@ -39,4 +39,37 @@ type QueryBuilder struct {
 //	query := qb.From("users")  // Equivalent to: From("users").WithClient(myClient)
 func (q *QueryBuilder) From(table string) *SelectQueryBuilder {
 	return From(table).WithClient(q.client)
+}
+
+// Into creates a new InsertQueryBuilder for the specified table with the client already attached.
+// This is a convenience method that combines Into() and WithClient() into a single call.
+//
+// Example:
+//
+//	qb := &QueryBuilder{client: myClient}
+//	query := qb.Into("users")  // Equivalent to: Into("users").WithClient(myClient)
+func (q *QueryBuilder) Into(table string) *InsertQueryBuilder {
+	return Into(table).WithClient(q.client)
+}
+
+// Update creates a new UpdateQueryBuilder for the specified table with the client already attached.
+// This is a convenience method that combines Update() and WithClient() into a single call.
+//
+// Example:
+//
+//	qb := &QueryBuilder{client: myClient}
+//	query := qb.Update("users")  // Equivalent to: Update("users").WithClient(myClient)
+func (q *QueryBuilder) Update(table string) *UpdateQueryBuilder {
+	return Update(table).WithClient(q.client)
+}
+
+// Delete creates a new DeleteQueryBuilder for the specified table with the client already attached.
+// This is a convenience method that combines Delete() and WithClient() into a single call.
+//
+// Example:
+//
+//	qb := &QueryBuilder{client: myClient}
+//	query := qb.Delete("users")  // Equivalent to: Delete("users").WithClient(myClient)
+func (q *QueryBuilder) Delete(table string) *DeleteQueryBuilder {
+	return Delete(table).WithClient(q.client)
 }
