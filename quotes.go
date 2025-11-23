@@ -1,13 +1,22 @@
 package sqlc
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/justtrackio/gosoline/pkg/funk"
+)
 
 // quoteIdentifier wraps a column name with identifier quotes
 // Special cases: don't quote "*" or already quoted identifiers
 // Handles table-qualified columns like "table.column" -> "`table`.`column`"
 // Handles JSON expressions like "data->'$.field'" -> "`data`->'$.field'"
-func quoteIdentifier(name string) string {
-	if name == "*" || strings.HasPrefix(name, identifierQuote) {
+func quoteIdentifier(name string, quote string) string {
+	// Use default quote if not specified
+	if quote == "" {
+		quote = identifierQuote
+	}
+
+	if name == "*" || strings.HasPrefix(name, quote) {
 		return name
 	}
 
@@ -18,7 +27,7 @@ func quoteIdentifier(name string) string {
 		jsonPart := name[idx:]
 
 		// Quote the column part (which might be table-qualified)
-		quotedColumn := quoteIdentifier(columnPart)
+		quotedColumn := quoteIdentifier(columnPart, quote)
 
 		return quotedColumn + jsonPart
 	}
@@ -26,30 +35,33 @@ func quoteIdentifier(name string) string {
 	// Handle table-qualified columns (e.g., "users.id" -> "`users`.`id`")
 	if strings.Contains(name, ".") {
 		parts := strings.Split(name, ".")
-		quoted := make([]string, len(parts))
-		for i, part := range parts {
+		quoted := funk.Map(parts, func(part string) string {
 			if part == "*" {
-				quoted[i] = part
-			} else {
-				quoted[i] = identifierQuote + part + identifierQuote
+				return part
 			}
-		}
+			return quote + part + quote
+		})
 
 		return strings.Join(quoted, ".")
 	}
 
-	return identifierQuote + name + identifierQuote
+	return quote + name + quote
 }
 
 // quoteOrderByClause handles ORDER BY clauses which may contain "column DESC" or "column ASC"
-func quoteOrderByClause(clause string) string {
+func quoteOrderByClause(clause string, quote string) string {
+	// Use default quote if not specified
+	if quote == "" {
+		quote = identifierQuote
+	}
+
 	parts := strings.Fields(clause)
 	if len(parts) == 0 {
 		return clause
 	}
 
 	// Quote the column name (first part)
-	quoted := quoteIdentifier(parts[0])
+	quoted := quoteIdentifier(parts[0], quote)
 
 	// Preserve ASC/DESC if present
 	if len(parts) > 1 {

@@ -65,9 +65,9 @@ func (q *DeleteQueryBuilderG[T]) WithClient(client Querier) *DeleteQueryBuilderG
 //
 // Example:
 //
-//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	config := &QueryBuilderConfig{StructTag: "json", Placeholder: "$"}
 //	query := DeleteG[User]("users").WithConfig(config).Where(...)
-func (q *DeleteQueryBuilderG[T]) WithConfig(config *Config) *DeleteQueryBuilderG[T] {
+func (q *DeleteQueryBuilderG[T]) WithConfig(config *QueryBuilderConfig) *DeleteQueryBuilderG[T] {
 	return &DeleteQueryBuilderG[T]{
 		qb: q.qb.WithConfig(config),
 	}

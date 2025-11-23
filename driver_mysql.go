@@ -57,6 +57,14 @@ func (m *mysqlDriver) GetDSN(settings *Settings) string {
 	return cfg.FormatDSN()
 }
 
+func (m *mysqlDriver) GetPlaceholder() string {
+	return "?"
+}
+
+func (m *mysqlDriver) GetQuote() string {
+	return "`"
+}
+
 type mysqlLogger struct {
 	logger log.Logger
 }

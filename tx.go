@@ -13,6 +13,7 @@ type (
 	Tx interface {
 		context.Context
 		Querier
+		Q() *QueryBuilder
 		Commit() error
 		Rollback() error
 		SqlTx() *sqlx.Tx

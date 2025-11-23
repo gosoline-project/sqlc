@@ -13,7 +13,7 @@ import (
 //
 // Example configuration (YAML):
 //
-//	sqlg:
+//	sqlc:
 //	  main:
 //	    driver: mysql
 //	    uri:
@@ -24,6 +24,21 @@ import (
 //	      database: myapp_db
 //	    charset: utf8mb4
 //	    max_open_connections: 25
+//
+// For PostgreSQL, use additional connection parameters:
+//
+//	sqlc:
+//	  pg_main:
+//	    driver: postgres
+//	    uri:
+//	      host: localhost
+//	      port: 5432
+//	      user: myapp
+//	      password: secret
+//	      database: myapp_db
+//	    parameters:
+//	      sslmode: disable
+//	      connect_timeout: "10"
 type Settings struct {
 	Charset               string            `cfg:"charset" default:"utf8mb4"`
 	Collation             string            `cfg:"collation" default:"utf8mb4_general_ci"`

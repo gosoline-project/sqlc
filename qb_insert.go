@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/mapx"
 	"github.com/justtrackio/gosoline/pkg/refl"
 )
@@ -79,14 +80,14 @@ type InsertQueryBuilder struct {
 	table       string
 	columns     []string
 	rows        [][]any
-	records     []any            // Store all records (for NamedExec or later extraction)
-	maps        []map[string]any // Store maps for ValuesMaps
-	useNamed    bool             // Whether to use named parameters
-	mode        string           // "INSERT" or "REPLACE"
-	ignore      bool             // Whether to use IGNORE modifier
-	priority    string           // Priority modifier: "", "LOW_PRIORITY", "HIGH_PRIORITY", "DELAYED"
-	onDuplicate []Assignment     // ON DUPLICATE KEY UPDATE assignments
-	config      *Config          // Configuration for struct tags and placeholders
+	records     []any               // Store all records (for NamedExec or later extraction)
+	maps        []map[string]any    // Store maps for ValuesMaps
+	useNamed    bool                // Whether to use named parameters
+	mode        string              // "INSERT" or "REPLACE"
+	ignore      bool                // Whether to use IGNORE modifier
+	priority    string              // Priority modifier: "", "LOW_PRIORITY", "HIGH_PRIORITY", "DELAYED"
+	onDuplicate []Assignment        // ON DUPLICATE KEY UPDATE assignments
+	config      *QueryBuilderConfig // Configuration for struct tags and placeholders
 	err         error
 }
 
@@ -155,9 +156,9 @@ func (q *InsertQueryBuilder) WithClient(client Querier) *InsertQueryBuilder {
 //
 // Example:
 //
-//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	config := &QueryBuilderConfig{StructTag: "json", Placeholder: "$"}
 //	query := Into("users").WithConfig(config).Records(user)
-func (q *InsertQueryBuilder) WithConfig(config *Config) *InsertQueryBuilder {
+func (q *InsertQueryBuilder) WithConfig(config *QueryBuilderConfig) *InsertQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.config = config
 
@@ -292,11 +293,7 @@ func (q *InsertQueryBuilder) OnDuplicateKeyUpdate(assignments ...Assignment) *In
 //	// INSERT INTO `users` (`id`, `name`, `email`) VALUES (...)
 func (q *InsertQueryBuilder) Columns(cols ...string) *InsertQueryBuilder {
 	newQuery := q.copyQuery()
-	newQuery.columns = make([]string, len(cols))
-
-	for i, col := range cols {
-		newQuery.columns[i] = quoteIdentifier(col)
-	}
+	newQuery.columns = append([]string{}, cols...)
 
 	return newQuery
 }
@@ -318,7 +315,7 @@ func (q *InsertQueryBuilder) Values(values ...any) *InsertQueryBuilder {
 	newQuery := q.copyQuery()
 
 	// Validate values count matches columns count if columns are set
-	if len(newQuery.columns) > 0 && len(values) != len(newQuery.columns) {
+	if len(values) != len(newQuery.columns) {
 		newQuery.err = fmt.Errorf("mismatched values count: expected %d values for %d columns, got %d", len(newQuery.columns), len(newQuery.columns), len(values))
 
 		return newQuery
@@ -350,7 +347,7 @@ func (q *InsertQueryBuilder) ValuesRows(rows ...[]any) *InsertQueryBuilder {
 
 	for i, row := range rows {
 		// Validate values count matches columns count if columns are set
-		if len(newQuery.columns) > 0 && len(row) != len(newQuery.columns) {
+		if len(row) != len(newQuery.columns) {
 			newQuery.err = fmt.Errorf("mismatched values count in row %d: expected %d values for %d columns, got %d", i, len(newQuery.columns), len(newQuery.columns), len(row))
 
 			return newQuery
@@ -397,24 +394,16 @@ func (q *InsertQueryBuilder) ValuesMaps(maps ...map[string]any) *InsertQueryBuil
 
 	// Infer columns from first map if not set
 	if len(newQuery.columns) == 0 {
-		keys := make([]string, 0, len(maps[0]))
-		for key := range maps[0] {
-			keys = append(keys, key)
-		}
 		// Sort keys alphabetically for consistent column order
+		keys := funk.Keys(maps[0])
 		sort.Strings(keys)
 
-		newQuery.columns = make([]string, len(keys))
-		for i, key := range keys {
-			newQuery.columns[i] = quoteIdentifier(key)
-		}
+		newQuery.columns = keys
 	}
 
 	// Validate all maps have the same keys as columns
 	columnNames := make([]string, len(newQuery.columns))
-	for i, col := range newQuery.columns {
-		columnNames[i] = unquoteIdentifier(col)
-	}
+	copy(columnNames, newQuery.columns)
 
 	for i, m := range maps {
 		// Validate all required columns exist in map
@@ -500,10 +489,7 @@ func (q *InsertQueryBuilder) Records(records ...any) *InsertQueryBuilder {
 
 	// If columns not set, infer from tags
 	if len(newQuery.columns) == 0 {
-		newQuery.columns = make([]string, len(tags))
-		for i, tag := range tags {
-			newQuery.columns[i] = quoteIdentifier(tag)
-		}
+		newQuery.columns = append([]string{}, tags...)
 	}
 
 	// Store flattened records without extracting values
@@ -643,7 +629,10 @@ func (q *InsertQueryBuilder) ToNamedSql() (query string, params []any, err error
 
 	// Columns clause
 	sql.WriteString(" (")
-	sql.WriteString(strings.Join(q.columns, ", "))
+	quotedColumns := funk.Map(q.columns, func(col string) string {
+		return quoteIdentifier(col, q.config.IdentifierQuote)
+	})
+	sql.WriteString(strings.Join(quotedColumns, ", "))
 	sql.WriteString(")")
 
 	// VALUES clause with named parameters (single VALUES clause for NamedExec)
@@ -664,16 +653,10 @@ func (q *InsertQueryBuilder) ToNamedSql() (query string, params []any, err error
 
 // buildNamedSqlForMaps builds the named SQL for map-based inserts.
 func (q *InsertQueryBuilder) buildNamedSqlForMaps(sql *strings.Builder) (query string, params []any, err error) {
-	// Get the unquoted column names for named parameters
-	columnNames := make([]string, len(q.columns))
-	for i, col := range q.columns {
-		columnNames[i] = unquoteIdentifier(col)
-	}
-
-	namedParams := make([]string, len(columnNames))
-	for i, colName := range columnNames {
-		namedParams[i] = ":" + colName
-	}
+	// Build named parameters from column names
+	namedParams := funk.Map(q.columns, func(colName string) string {
+		return ":" + colName
+	})
 
 	sql.WriteString(strings.Join(namedParams, ", "))
 	sql.WriteString(")")
@@ -700,10 +683,9 @@ func (q *InsertQueryBuilder) buildNamedSqlForMaps(sql *strings.Builder) (query s
 func (q *InsertQueryBuilder) buildNamedSqlForRecords(sql *strings.Builder) (query string, params []any, err error) {
 	// Get the unquoted column names for named parameters
 	tags := refl.GetTags(q.records[0], q.config.StructTag)
-	namedParams := make([]string, len(tags))
-	for i, tag := range tags {
-		namedParams[i] = ":" + tag
-	}
+	namedParams := funk.Map(tags, func(tag string) string {
+		return ":" + tag
+	})
 
 	sql.WriteString(strings.Join(namedParams, ", "))
 	sql.WriteString(")")
@@ -731,14 +713,13 @@ func (q *InsertQueryBuilder) buildOnDuplicateClauseNamed() (string, error) {
 	var parts []string
 
 	for _, assignment := range q.onDuplicate {
-		quotedCol := quoteIdentifier(assignment.Column)
+		quotedCol := quoteIdentifier(assignment.Column, q.config.IdentifierQuote)
 		if assignment.IsExpr {
 			// Expression - insert directly without parameterization
 			parts = append(parts, fmt.Sprintf("%s = %v", quotedCol, assignment.Value))
 		} else {
 			// Value - use named placeholder (same as column name)
-			colName := unquoteIdentifier(assignment.Column)
-			parts = append(parts, fmt.Sprintf("%s = :%s", quotedCol, colName))
+			parts = append(parts, fmt.Sprintf("%s = :%s", quotedCol, assignment.Column))
 		}
 	}
 
@@ -875,33 +856,12 @@ func extractValuesFromStruct(record any, tags []string, structTag string) (value
 	return values, nil
 }
 
-// unquoteIdentifier removes backtick quotes from an identifier.
-// For simple identifiers like `id` or `name`, returns the unquoted name.
-// For table-qualified identifiers like `users`.`id`, returns just the column name without table prefix.
-func unquoteIdentifier(identifier string) string {
-	// Remove all backticks
-	unquoted := strings.ReplaceAll(identifier, "`", "")
-
-	// If it's table-qualified (contains .), return just the column name
-	if idx := strings.LastIndex(unquoted, "."); idx != -1 {
-		return unquoted[idx+1:]
-	}
-
-	return unquoted
-}
-
 // extractValuesFromMaps extracts values from all maps in column order and appends them to q.rows.
 func (q *InsertQueryBuilder) extractValuesFromMaps() error {
-	// Get the unquoted column names for map key lookup
-	columnNames := make([]string, len(q.columns))
-	for i, col := range q.columns {
-		columnNames[i] = unquoteIdentifier(col)
-	}
-
 	// Extract values from all maps in column order
 	for _, m := range q.maps {
-		row := make([]any, len(columnNames))
-		for j, colName := range columnNames {
+		row := make([]any, len(q.columns))
+		for j, colName := range q.columns {
 			row[j] = m[colName]
 		}
 
@@ -950,7 +910,10 @@ func (q *InsertQueryBuilder) buildInsertSql() (query string, params []any, err e
 
 	// Columns clause
 	sql.WriteString(" (")
-	sql.WriteString(strings.Join(q.columns, ", "))
+	quotedColumns := funk.Map(q.columns, func(col string) string {
+		return quoteIdentifier(col, q.config.IdentifierQuote)
+	})
+	sql.WriteString(strings.Join(quotedColumns, ", "))
 	sql.WriteString(")")
 
 	// VALUES clause
@@ -1006,7 +969,7 @@ func (q *InsertQueryBuilder) buildInsertPrefix() (string, error) {
 
 	// Add INTO table
 	parts = append(parts, "INTO")
-	parts = append(parts, quoteIdentifier(q.table))
+	parts = append(parts, quoteIdentifier(q.table, q.config.IdentifierQuote))
 
 	return strings.Join(parts, " "), nil
 }
@@ -1022,7 +985,7 @@ func (q *InsertQueryBuilder) buildOnDuplicateClause(paramIndex int) (clause stri
 	params = []any{}
 
 	for _, assignment := range q.onDuplicate {
-		quotedCol := quoteIdentifier(assignment.Column)
+		quotedCol := quoteIdentifier(assignment.Column, q.config.IdentifierQuote)
 		if assignment.IsExpr {
 			// Expression - insert directly without parameterization
 			parts = append(parts, fmt.Sprintf("%s = %v", quotedCol, assignment.Value))

@@ -41,7 +41,7 @@ type (
 		Querier
 
 		// BeginTx starts a new transaction with the given options.
-		BeginTx(ctx context.Context, ops *sql.TxOptions) (Tx, error)
+		BeginTx(ctx context.Context, ops ...*sql.TxOptions) (Tx, error)
 		// Close closes the database connection.
 		Close() error
 		// Qb returns a new QueryBuilder instance for constructing SQL queries.
@@ -62,7 +62,8 @@ var _ Client = (*client)(nil)
 
 type client struct {
 	*baseQuerier
-	db *sqlx.DB
+	db       *sqlx.DB
+	qbConfig *QueryBuilderConfig
 }
 
 // ProvideClient provides a client from context.
@@ -102,47 +103,62 @@ func NewClient(ctx context.Context, config cfg.Config, logger log.Logger, name s
 // NewClientWithSettings creates a new SQL client with the provided settings.
 // It establishes a database connection and optionally configures retry behavior.
 func NewClientWithSettings(ctx context.Context, config cfg.Config, logger log.Logger, name string, settings *Settings) (*client, error) {
-	var (
-		err        error
-		connection *sqlx.DB
-		executor   exec.Executor
-	)
+	var err error
+	var connection *sqlx.DB
+	var driver Driver
 
-	executor = exec.NewDefaultExecutor()
+	executor := exec.NewDefaultExecutor()
 
 	if connection, err = ProvideConnectionFromSettings(ctx, logger, name, settings); err != nil {
 		return nil, fmt.Errorf("can not connect to sql database: %w", err)
 	}
 
-	if settings.Retry.Enabled {
-		if executor, err = NewExecutor(config, logger, name, ExecutorBackoffType(name)); err != nil {
-			return nil, fmt.Errorf("can not create executor for sql client %s: %w", name, err)
-		}
+	if driver, err = GetDriver(logger, settings.Driver); err != nil {
+		return nil, fmt.Errorf("can not get driver for sql client %s: %w", name, err)
 	}
 
-	return NewClientWithInterfaces(logger, connection, executor), nil
+	qbConfig := &QueryBuilderConfig{
+		StructTag:       dbStructTag,
+		Placeholder:     driver.GetPlaceholder(),
+		IdentifierQuote: driver.GetQuote(),
+	}
+
+	if !settings.Retry.Enabled {
+		return NewClientWithInterfaces(logger, connection, executor, qbConfig), nil
+	}
+
+	if executor, err = NewExecutor(config, logger, name, ExecutorBackoffType(name)); err != nil {
+		return nil, fmt.Errorf("can not create executor for sql client %s: %w", name, err)
+	}
+
+	return NewClientWithInterfaces(logger, connection, executor, qbConfig), nil
 }
 
 // NewClientWithInterfaces creates a new SQL client with provided interfaces.
 // This is useful for testing or when you want to provide custom implementations.
-func NewClientWithInterfaces(logger log.Logger, connection *sqlx.DB, executor exec.Executor) *client {
+func NewClientWithInterfaces(logger log.Logger, connection *sqlx.DB, executor exec.Executor, qbConfig *QueryBuilderConfig) *client {
 	return &client{
 		baseQuerier: newBaseQuerier(logger, executor, connection),
 		db:          connection,
+		qbConfig:    qbConfig,
 	}
 }
 
 // Qb returns a new QueryBuilder instance for this client.
 // QueryBuilder provides a fluent interface for constructing SQL queries.
 func (c *client) Q() *QueryBuilder {
-	return &QueryBuilder{client: c}
+	return NewQueryBuilder(c, c.qbConfig)
 }
 
-func (c *client) BeginTx(ctx context.Context, ops *sql.TxOptions) (Tx, error) {
+func (c *client) BeginTx(ctx context.Context, ops ...*sql.TxOptions) (Tx, error) {
 	c.logger.Debug(ctx, "start tx")
 
+	if len(ops) == 0 {
+		ops = append(ops, &sql.TxOptions{})
+	}
+
 	res, err := c.executor.Execute(ctx, func(ctx context.Context) (any, error) {
-		return c.db.BeginTxx(ctx, ops)
+		return c.db.BeginTxx(ctx, ops[0])
 	})
 	if err != nil {
 		return nil, err

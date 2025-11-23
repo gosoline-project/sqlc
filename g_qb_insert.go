@@ -63,9 +63,9 @@ func (q *InsertQueryBuilderG[T]) WithClient(client Querier) *InsertQueryBuilderG
 //
 // Example:
 //
-//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	config := &QueryBuilderConfig{StructTag: "json", Placeholder: "$"}
 //	query := IntoG[User]("users").WithConfig(config).Records(user)
-func (q *InsertQueryBuilderG[T]) WithConfig(config *Config) *InsertQueryBuilderG[T] {
+func (q *InsertQueryBuilderG[T]) WithConfig(config *QueryBuilderConfig) *InsertQueryBuilderG[T] {
 	return &InsertQueryBuilderG[T]{
 		qb: q.qb.WithConfig(config),
 	}

@@ -10,6 +10,8 @@ type DriverFactory func(logger log.Logger) (Driver, error)
 
 type Driver interface {
 	GetDSN(settings *Settings) string
+	GetPlaceholder() string
+	GetQuote() string
 }
 
 var driverFactories = map[string]DriverFactory{}

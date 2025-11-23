@@ -24,14 +24,10 @@ func ExampleInsertGeneric() {
 	// Example 1: Insert a single user using Records
 	user := User{ID: 1, Name: "John Doe", Email: "john@example.com"}
 
-	result, err := sqlc.IntoG[User]("users").
+	result, _ := sqlc.IntoG[User]("users").
 		WithClient(client).
 		Records(user).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error inserting user: %v\n", err)
-		return
-	}
 
 	lastID, _ := result.LastInsertId()
 	fmt.Printf("Inserted user with ID: %d\n", lastID)
@@ -42,20 +38,16 @@ func ExampleInsertGeneric() {
 		{ID: 3, Name: "Bob Wilson", Email: "bob@example.com"},
 	}
 
-	result, err = sqlc.IntoG[User]("users").
+	result, _ = sqlc.IntoG[User]("users").
 		WithClient(client).
 		Records(users).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error batch inserting users: %v\n", err)
-		return
-	}
 
 	rowsAffected, _ := result.RowsAffected()
 	fmt.Printf("Inserted %d users\n", rowsAffected)
 
 	// Example 3: Insert with ON DUPLICATE KEY UPDATE
-	result, err = sqlc.IntoG[User]("users").
+	result, _ = sqlc.IntoG[User]("users").
 		WithClient(client).
 		Records(user).
 		OnDuplicateKeyUpdate(
@@ -63,30 +55,18 @@ func ExampleInsertGeneric() {
 			sqlc.AssignExpr("email", "CONCAT(email, '_updated')"),
 		).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error upserting user: %v\n", err)
-		return
-	}
 
 	// Example 4: Using REPLACE mode
-	result, err = sqlc.IntoG[User]("users").
+	result, _ = sqlc.IntoG[User]("users").
 		WithClient(client).
 		Replace().
 		Records(user).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error replacing user: %v\n", err)
-		return
-	}
 
 	// Example 5: Using IGNORE modifier
-	result, err = sqlc.IntoG[User]("users").
+	result, _ = sqlc.IntoG[User]("users").
 		WithClient(client).
 		Ignore().
 		Records(user).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error inserting user with ignore: %v\n", err)
-		return
-	}
 }

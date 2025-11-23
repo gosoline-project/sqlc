@@ -15,12 +15,7 @@ func ExampleSelect() {
 		OrderBy("created_at DESC").
 		Limit(10)
 
-	sql1, params1, err := q1.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 1: %v\n", err)
-
-		return
-	}
+	sql1, params1, _ := q1.ToSql()
 	fmt.Println("Query 1 (string-based WHERE):")
 	fmt.Println(sql1)
 	fmt.Println("Params:", params1)
@@ -34,12 +29,7 @@ func ExampleSelect() {
 		OrderBy("created_at DESC").
 		Limit(50)
 
-	sql2, params2, err := q2.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 2: %v\n", err)
-
-		return
-	}
+	sql2, params2, _ := q2.ToSql()
 	fmt.Println("Query 2 (expression-based WHERE with In):")
 	fmt.Println(sql2)
 	fmt.Println("Params:", params2)
@@ -58,12 +48,7 @@ func ExampleSelect() {
 		OrderBy(sqlc.Col("total_amount").Desc()).
 		Limit(100)
 
-	sql3, params3, err := q3.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 3: %v\n", err)
-
-		return
-	}
+	sql3, params3, _ := q3.ToSql()
 	fmt.Println("Query 3 (with aggregations and Eq):")
 	fmt.Println(sql3)
 	fmt.Println("Params:", params3)
@@ -77,12 +62,7 @@ func ExampleSelect() {
 		Where(sqlc.Col("category").NotEq("discontinued")).
 		Where(sqlc.Col("name").Like("%phone%"))
 
-	sql4, params4, err := q4.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 4: %v\n", err)
-
-		return
-	}
+	sql4, params4, _ := q4.ToSql()
 	fmt.Println("Query 4 (various comparison operators):")
 	fmt.Println(sql4)
 	fmt.Println("Params:", params4)
@@ -94,12 +74,7 @@ func ExampleSelect() {
 		Where(sqlc.Col("deleted_at").IsNull()).
 		Where(sqlc.Col("email").IsNotNull())
 
-	sql5, params5, err := q5.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 5: %v\n", err)
-
-		return
-	}
+	sql5, params5, _ := q5.ToSql()
 	fmt.Println("Query 5 (IS NULL / IS NOT NULL):")
 	fmt.Println(sql5)
 	fmt.Println("Params:", params5)
@@ -121,12 +96,7 @@ func ExampleSelect() {
 		OrderBy(sqlc.Col("total_revenue").Desc()).
 		Limit(10)
 
-	sql6, params6, err := q6.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 6: %v\n", err)
-
-		return
-	}
+	sql6, params6, _ := q6.ToSql()
 	fmt.Println("Query 6 (mixed string and expression WHERE):")
 	fmt.Println(sql6)
 	fmt.Println("Params:", params6)

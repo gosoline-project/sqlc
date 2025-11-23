@@ -25,7 +25,7 @@ import (
 //	sql, args, err := query.ToSql()
 type SelectQueryBuilder struct {
 	client       Querier
-	config       *Config
+	config       *QueryBuilderConfig
 	table        string
 	tableAlias   string
 	projections  []string
@@ -47,14 +47,15 @@ type SelectQueryBuilder struct {
 //	From("users")                   // SELECT * FROM `users`
 //	From("orders").As("o")          // SELECT * FROM `orders` AS o
 func From(table string) *SelectQueryBuilder {
+	cfg := DefaultConfig()
 	return &SelectQueryBuilder{
 		table:        table,
-		config:       DefaultConfig(),
+		config:       cfg,
 		projections:  []string{},
-		sqlerWhere:   NewSqlerWhere(),
-		sqlerGroupBy: NewSqlerGroupBy(),
-		sqlerHaving:  NewSqlerHaving(),
-		sqlerOrderBy: NewSqlerOrderBy(),
+		sqlerWhere:   NewSqlerWhere().WithConfig(cfg),
+		sqlerGroupBy: NewSqlerGroupBy().WithConfig(cfg),
+		sqlerHaving:  NewSqlerHaving().WithConfig(cfg),
+		sqlerOrderBy: NewSqlerOrderBy().WithConfig(cfg),
 	}
 }
 
@@ -73,6 +74,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 	// Copy the SqlerGroupBy
 	newSqlerGroupBy := &SqlerGroupBy{
 		clauses: append([]string{}, q.sqlerGroupBy.clauses...),
+		config:  q.sqlerGroupBy.config,
 		err:     q.sqlerGroupBy.err,
 	}
 
@@ -87,6 +89,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 	// Copy the SqlerOrderBy
 	newSqlerOrderBy := &SqlerOrderBy{
 		clauses: append([]string{}, q.sqlerOrderBy.clauses...),
+		config:  q.sqlerOrderBy.config,
 		err:     q.sqlerOrderBy.err,
 	}
 
@@ -136,14 +139,16 @@ func (q *SelectQueryBuilder) WithClient(client Querier) *SelectQueryBuilder {
 //
 // Example:
 //
-//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	config := &QueryBuilderConfig{StructTag: "json", Placeholder: "$"}
 //	query := From("users").WithConfig(config).Limit(10)
 //	sql, args, err := query.ToSql()
-func (q *SelectQueryBuilder) WithConfig(config *Config) *SelectQueryBuilder {
+func (q *SelectQueryBuilder) WithConfig(config *QueryBuilderConfig) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.config = config
 	newQuery.sqlerWhere.WithConfig(config)
 	newQuery.sqlerHaving.WithConfig(config)
+	newQuery.sqlerGroupBy.WithConfig(config)
+	newQuery.sqlerOrderBy.WithConfig(config)
 
 	return newQuery
 }
@@ -178,9 +183,9 @@ func (q *SelectQueryBuilder) Columns(cols ...any) *SelectQueryBuilder {
 	for i, col := range cols {
 		switch v := col.(type) {
 		case string:
-			newQuery.projections = append(newQuery.projections, quoteIdentifier(v))
+			newQuery.projections = append(newQuery.projections, quoteIdentifier(v, newQuery.config.IdentifierQuote))
 		case *Expression:
-			newQuery.projections = append(newQuery.projections, v.toSQL())
+			newQuery.projections = append(newQuery.projections, v.toSQL(newQuery.config.IdentifierQuote))
 		default:
 			newQuery.err = fmt.Errorf("invalid type for Columns argument %d: expected string or *Expression, got %T", i, col)
 
@@ -207,9 +212,9 @@ func (q *SelectQueryBuilder) Column(col any) *SelectQueryBuilder {
 
 	switch v := col.(type) {
 	case string:
-		newQuery.projections = append(newQuery.projections, quoteIdentifier(v))
+		newQuery.projections = append(newQuery.projections, quoteIdentifier(v, newQuery.config.IdentifierQuote))
 	case *Expression:
-		newQuery.projections = append(newQuery.projections, v.toSQL())
+		newQuery.projections = append(newQuery.projections, v.toSQL(newQuery.config.IdentifierQuote))
 	default:
 		newQuery.err = fmt.Errorf("invalid type for Column argument: expected string or *Expression, got %T", col)
 
@@ -433,7 +438,7 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 
 	// FROM clause
 	sqlBuilder.WriteString(" FROM ")
-	sqlBuilder.WriteString(quoteIdentifier(q.table))
+	sqlBuilder.WriteString(quoteIdentifier(q.table, q.config.IdentifierQuote))
 	if q.tableAlias != "" {
 		sqlBuilder.WriteString(" AS ")
 		sqlBuilder.WriteString(q.tableAlias)
@@ -521,7 +526,7 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 //		WithClient(client).
 //		Select(ctx, &users)
 func (q *SelectQueryBuilder) Select(ctx context.Context, dest any) error {
-	if err := validatePointer(dest, "Select"); err != nil {
+	if err := validatePointer(dest, "Select", true); err != nil {
 		return err
 	}
 
@@ -573,7 +578,7 @@ func (q *SelectQueryBuilder) Select(ctx context.Context, dest any) error {
 //		Where("id = ?", 123).
 //		Get(ctx, &user)
 func (q *SelectQueryBuilder) Get(ctx context.Context, dest any) error {
-	if err := validatePointer(dest, "Get"); err != nil {
+	if err := validatePointer(dest, "Get", false); err != nil {
 		return err
 	}
 
@@ -591,7 +596,11 @@ func (q *SelectQueryBuilder) Get(ctx context.Context, dest any) error {
 
 	qb := q
 	if len(q.projections) == 0 {
-		qb = qb.ForType(dest)
+		// Only call ForType for struct destinations
+		// For primitive types and maps, let sqlx handle scanning directly
+		if elem.Kind() == reflect.Struct {
+			qb = qb.ForType(dest)
+		}
 	}
 
 	var err error
@@ -605,9 +614,11 @@ func (q *SelectQueryBuilder) Get(ctx context.Context, dest any) error {
 	return qb.client.Get(ctx, dest, sql, args...)
 }
 
-// validatePointer checks if the provided value is a pointer to a struct or slice.
-// Returns a descriptive error if the value is not a valid pointer.
-func validatePointer(v any, funcName string) error {
+// validatePointer checks if the provided value is a pointer.
+// If requireStructOrSlice is true, it also checks that the pointer
+// points to a struct or slice. Returns a descriptive error if the
+// value is not a valid pointer.
+func validatePointer(v any, funcName string, requireStructOrSlice bool) error {
 	if v == nil {
 		return fmt.Errorf("%s: destination cannot be nil", funcName)
 	}
@@ -619,6 +630,10 @@ func validatePointer(v any, funcName string) error {
 
 	if rv.IsNil() {
 		return fmt.Errorf("%s: destination pointer cannot be nil", funcName)
+	}
+
+	if !requireStructOrSlice {
+		return nil
 	}
 
 	// Check that the pointer points to a struct or slice

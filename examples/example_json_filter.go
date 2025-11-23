@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 
 	sqlc "github.com/gosoline-project/sqlc"
 )
@@ -198,10 +197,7 @@ func example7FromJSON() {
 		]
 	}`
 
-	filter, err := sqlc.JsonFilterFromJSON(jsonStr)
-	if err != nil {
-		log.Fatal(err)
-	}
+	filter, _ := sqlc.JsonFilterFromJSON(jsonStr)
 
 	expr, _ := filter.ToExpression()
 	sql, params, _ := sqlc.From("users").Where(expr).ToSql()
@@ -269,7 +265,6 @@ func repeat(s string, count int) string {
 }
 
 // mockClient for demonstration purposes
-//
 type mockClient struct{}
 
 func (m *mockClient) Query(_ context.Context, _ string, _ ...any) (sqlc.Result, error) {

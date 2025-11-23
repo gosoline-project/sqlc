@@ -1623,16 +1623,18 @@ func TestGetWithPointerToPrimitive(t *testing.T) {
 	mockClient := mocks.NewClient(t)
 
 	q := sqlc.From("users").
-		Columns("id", "name").
+		Columns("name").
 		WithClient(mockClient)
 
 	ctx := context.Background()
 	var name string
+
+	mockClient.On("Get", ctx, &name, "SELECT `name` FROM `users`").
+		Return(nil)
+
 	err := q.Get(ctx, &name)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Get: destination must be a pointer to a struct or slice")
-	assert.Contains(t, err.Error(), "got pointer to string")
+	assert.NoError(t, err)
 }
 
 func TestSelectWithPointerToMap(t *testing.T) {
@@ -1651,10 +1653,66 @@ func TestSelectWithPointerToMap(t *testing.T) {
 	assert.Contains(t, err.Error(), "got pointer to map")
 }
 
+func TestGetWithPointerToMap(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	q := sqlc.From("users").
+		Columns("id", "name").
+		WithClient(mockClient)
+
+	ctx := context.Background()
+	var m map[string]any
+
+	mockClient.On("Get", ctx, &m, "SELECT `id`, `name` FROM `users`").
+		Return(nil)
+
+	err := q.Get(ctx, &m)
+
+	assert.NoError(t, err)
+}
+
+func TestGetWithPointerToPrimitiveNoColumns(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	// No explicit Columns() - should use SELECT * for primitives
+	q := sqlc.From("users").
+		WithClient(mockClient).
+		Where("id = ?", 123)
+
+	ctx := context.Background()
+	var name string
+
+	mockClient.On("Get", ctx, &name, "SELECT * FROM `users` WHERE id = ?", []any{123}).
+		Return(nil)
+
+	err := q.Get(ctx, &name)
+
+	assert.NoError(t, err)
+}
+
+func TestGetWithPointerToMapNoColumns(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	// No explicit Columns() - should use SELECT * for maps
+	q := sqlc.From("users").
+		WithClient(mockClient).
+		Where("id = ?", 456)
+
+	ctx := context.Background()
+	var m map[string]any
+
+	mockClient.On("Get", ctx, &m, "SELECT * FROM `users` WHERE id = ?", []any{456}).
+		Return(nil)
+
+	err := q.Get(ctx, &m)
+
+	assert.NoError(t, err)
+}
+
 // ========== Tests with PostgreSQL-style placeholders ==========
 
 func TestSimpleSelectWithPostgreSQLPlaceholders(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1673,7 +1731,7 @@ func TestSimpleSelectWithPostgreSQLPlaceholders(t *testing.T) {
 }
 
 func TestSelectWithMultipleWherePostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1694,7 +1752,7 @@ func TestSelectWithMultipleWherePostgreSQL(t *testing.T) {
 }
 
 func TestSelectWithLimitOffsetPostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1718,7 +1776,7 @@ func TestSelectWithLimitOffsetPostgreSQL(t *testing.T) {
 }
 
 func TestSelectWithInExpressionPostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1738,7 +1796,7 @@ func TestSelectWithInExpressionPostgreSQL(t *testing.T) {
 }
 
 func TestSelectWithBetweenPostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1758,7 +1816,7 @@ func TestSelectWithBetweenPostgreSQL(t *testing.T) {
 }
 
 func TestComplexQueryWithPostgreSQLPlaceholders(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1794,7 +1852,7 @@ func TestComplexQueryWithPostgreSQLPlaceholders(t *testing.T) {
 }
 
 func TestSelectWithAndOrExpressionsPostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1825,7 +1883,7 @@ func TestSelectWithAndOrExpressionsPostgreSQL(t *testing.T) {
 }
 
 func TestSelectWithComplexLogicalExpressionsPostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1853,7 +1911,7 @@ func TestSelectWithComplexLogicalExpressionsPostgreSQL(t *testing.T) {
 }
 
 func TestSelectWithEqMapPostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1878,7 +1936,7 @@ func TestSelectWithEqMapPostgreSQL(t *testing.T) {
 // ========== Tests with Oracle-style placeholders ==========
 
 func TestSimpleSelectWithOraclePlaceholders(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: ":",
 	}
@@ -1897,7 +1955,7 @@ func TestSimpleSelectWithOraclePlaceholders(t *testing.T) {
 }
 
 func TestComplexQueryWithOraclePlaceholders(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: ":",
 	}
@@ -1925,7 +1983,7 @@ func TestComplexQueryWithOraclePlaceholders(t *testing.T) {
 // ========== Tests for config immutability ==========
 
 func TestConfigImmutability(t *testing.T) {
-	pgConfig := &sqlc.Config{
+	pgConfig := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1951,7 +2009,7 @@ func TestConfigImmutability(t *testing.T) {
 }
 
 func TestConfigWithHavingPostgreSQL(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -1985,7 +2043,7 @@ func TestConfigWithCustomStructTag(t *testing.T) {
 		Email string `json:"email"`
 	}
 
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "json",
 		Placeholder: "$",
 	}

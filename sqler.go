@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/justtrackio/gosoline/pkg/funk"
 )
 
 type (
@@ -18,7 +20,7 @@ type (
 type SqlerWhere struct {
 	clauses []string
 	params  []any
-	config  *Config
+	config  *QueryBuilderConfig
 	err     error
 }
 
@@ -41,13 +43,13 @@ func (s *SqlerWhere) IsEmpty() bool {
 //
 // Example:
 //
-//	config := &Config{Placeholder: "$"}
+//	config := &QueryBuilderConfig{Placeholder: "$"}
 //	sqlerWhere := NewSqlerWhere()
 //	sqlerWhere.WithConfig(config).Where("status = ?", "active")
 //	sql, params, err := sqlerWhere.ToSql()
 //	// sql: "status = $1"
 //	// params: []any{"active"}
-func (s *SqlerWhere) WithConfig(config *Config) *SqlerWhere {
+func (s *SqlerWhere) WithConfig(config *QueryBuilderConfig) *SqlerWhere {
 	s.config = config
 	return s
 }
@@ -78,7 +80,7 @@ func (s *SqlerWhere) Where(condition any, params ...any) *SqlerWhere {
 		if v == nil {
 			return s
 		}
-		s.clauses = append(s.clauses, v.toConditionSQL())
+		s.clauses = append(s.clauses, v.toConditionSQL(s.config.IdentifierQuote))
 		s.params = append(s.params, v.collectParameters()...)
 	case Eq:
 		// Handle Eq map type - convert to expressions
@@ -87,17 +89,13 @@ func (s *SqlerWhere) Where(condition any, params ...any) *SqlerWhere {
 		}
 
 		// Sort keys for deterministic SQL generation
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
+		keys := funk.Keys(v)
 		sort.Strings(keys)
 
 		// Create equality expressions for each key-value pair
-		expressions := make([]*Expression, len(keys))
-		for i, key := range keys {
-			expressions[i] = Col(key).Eq(v[key])
-		}
+		expressions := funk.Map(keys, func(key string) *Expression {
+			return Col(key).Eq(v[key])
+		})
 
 		// Single condition doesn't need AND wrapping
 		var expr *Expression
@@ -107,7 +105,7 @@ func (s *SqlerWhere) Where(condition any, params ...any) *SqlerWhere {
 			expr = And(expressions...)
 		}
 
-		s.clauses = append(s.clauses, expr.toConditionSQL())
+		s.clauses = append(s.clauses, expr.toConditionSQL(s.config.IdentifierQuote))
 		s.params = append(s.params, expr.collectParameters()...)
 	default:
 		s.err = fmt.Errorf("invalid type for Where condition: expected string or *Expression, got %T", condition)
@@ -133,7 +131,7 @@ func (s *SqlerWhere) Where(condition any, params ...any) *SqlerWhere {
 //
 // With custom config:
 //
-//	config := &Config{Placeholder: "$"}
+//	config := &QueryBuilderConfig{Placeholder: "$"}
 //	sqlerWhere := NewSqlerWhere()
 //	sqlerWhere.WithConfig(config).Where("status = ?", "active").Where("age > ?", 18)
 //	sql, params, err := sqlerWhere.ToSql()
@@ -177,6 +175,7 @@ func (s *SqlerWhere) toSqlWithStartIndex(startIndex int) (query string, params [
 // It extracts the group by logic to be reusable across different query builders.
 type SqlerGroupBy struct {
 	clauses []string
+	config  *QueryBuilderConfig
 	err     error
 }
 
@@ -184,12 +183,28 @@ type SqlerGroupBy struct {
 func NewSqlerGroupBy() *SqlerGroupBy {
 	return &SqlerGroupBy{
 		clauses: []string{},
+		config:  DefaultConfig(),
 	}
 }
 
 // IsEmpty returns true if no GROUP BY columns have been added.
 func (s *SqlerGroupBy) IsEmpty() bool {
 	return len(s.clauses) == 0
+}
+
+// WithConfig sets the config for identifier quoting.
+// Returns the same SqlerGroupBy instance for method chaining.
+//
+// Example:
+//
+//	config := &QueryBuilderConfig{IdentifierQuote: "\""}
+//	sqlerGroupBy := NewSqlerGroupBy()
+//	sqlerGroupBy.WithConfig(config).GroupBy("status")
+//	sql, err := sqlerGroupBy.ToSql()
+//	// sql: "\"status\""
+func (s *SqlerGroupBy) WithConfig(config *QueryBuilderConfig) *SqlerGroupBy {
+	s.config = config
+	return s
 }
 
 // GroupBy sets the GROUP BY columns for the query.
@@ -208,9 +223,9 @@ func (s *SqlerGroupBy) GroupBy(cols ...any) *SqlerGroupBy {
 	for i, col := range cols {
 		switch v := col.(type) {
 		case string:
-			s.clauses = append(s.clauses, quoteIdentifier(v))
+			s.clauses = append(s.clauses, quoteIdentifier(v, s.config.IdentifierQuote))
 		case *Expression:
-			s.clauses = append(s.clauses, v.toSQL())
+			s.clauses = append(s.clauses, v.toSQL(s.config.IdentifierQuote))
 		default:
 			s.err = fmt.Errorf("invalid type for GroupBy argument %d: expected string or *Expression, got %T", i, col)
 
@@ -249,7 +264,7 @@ func (s *SqlerGroupBy) ToSql() (query string, err error) {
 type SqlerHaving struct {
 	clauses []string
 	params  []any
-	config  *Config
+	config  *QueryBuilderConfig
 	err     error
 }
 
@@ -272,13 +287,13 @@ func (s *SqlerHaving) IsEmpty() bool {
 //
 // Example:
 //
-//	config := &Config{Placeholder: "$"}
+//	config := &QueryBuilderConfig{Placeholder: "$"}
 //	sqlerHaving := NewSqlerHaving()
 //	sqlerHaving.WithConfig(config).Having("COUNT(*) > ?", 10)
 //	sql, params, err := sqlerHaving.ToSql()
 //	// sql: "COUNT(*) > $1"
 //	// params: []any{10}
-func (s *SqlerHaving) WithConfig(config *Config) *SqlerHaving {
+func (s *SqlerHaving) WithConfig(config *QueryBuilderConfig) *SqlerHaving {
 	s.config = config
 	return s
 }
@@ -307,7 +322,7 @@ func (s *SqlerHaving) Having(condition any, params ...any) *SqlerHaving {
 		if v == nil {
 			return s
 		}
-		s.clauses = append(s.clauses, v.toConditionSQL())
+		s.clauses = append(s.clauses, v.toConditionSQL(s.config.IdentifierQuote))
 		s.params = append(s.params, v.collectParameters()...)
 	default:
 		s.err = fmt.Errorf("invalid type for Having condition: expected string or *Expression, got %T", condition)
@@ -333,7 +348,7 @@ func (s *SqlerHaving) Having(condition any, params ...any) *SqlerHaving {
 //
 // With custom config:
 //
-//	config := &Config{Placeholder: "$"}
+//	config := &QueryBuilderConfig{Placeholder: "$"}
 //	sqlerHaving := NewSqlerHaving()
 //	sqlerHaving.WithConfig(config).Having("COUNT(*) > ?", 10).Having("SUM(amount) > ?", 1000)
 //	sql, params, err := sqlerHaving.ToSql()
@@ -377,6 +392,7 @@ func (s *SqlerHaving) toSqlWithStartIndex(startIndex int) (query string, params 
 // It extracts the order by logic to be reusable across different query builders.
 type SqlerOrderBy struct {
 	clauses []string
+	config  *QueryBuilderConfig
 	err     error
 }
 
@@ -384,12 +400,28 @@ type SqlerOrderBy struct {
 func NewSqlerOrderBy() *SqlerOrderBy {
 	return &SqlerOrderBy{
 		clauses: []string{},
+		config:  DefaultConfig(),
 	}
 }
 
 // IsEmpty returns true if no ORDER BY clauses have been added.
 func (s *SqlerOrderBy) IsEmpty() bool {
 	return len(s.clauses) == 0
+}
+
+// WithConfig sets the config for identifier quoting.
+// Returns the same SqlerOrderBy instance for method chaining.
+//
+// Example:
+//
+//	config := &QueryBuilderConfig{IdentifierQuote: "\""}
+//	sqlerOrderBy := NewSqlerOrderBy()
+//	sqlerOrderBy.WithConfig(config).OrderBy("name ASC")
+//	sql, err := sqlerOrderBy.ToSql()
+//	// sql: "\"name\" ASC"
+func (s *SqlerOrderBy) WithConfig(config *QueryBuilderConfig) *SqlerOrderBy {
+	s.config = config
+	return s
 }
 
 // OrderBy sets the ORDER BY clause for the query.
@@ -409,9 +441,9 @@ func (s *SqlerOrderBy) OrderBy(cols ...any) *SqlerOrderBy {
 	for i, col := range cols {
 		switch v := col.(type) {
 		case string:
-			s.clauses = append(s.clauses, quoteOrderByClause(v))
+			s.clauses = append(s.clauses, quoteOrderByClause(v, s.config.IdentifierQuote))
 		case *Expression:
-			s.clauses = append(s.clauses, v.toSQL())
+			s.clauses = append(s.clauses, v.toSQL(s.config.IdentifierQuote))
 		default:
 			s.err = fmt.Errorf("invalid type for OrderBy argument %d: expected string or *Expression, got %T", i, col)
 

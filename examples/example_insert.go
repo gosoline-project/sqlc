@@ -12,12 +12,7 @@ func ExampleInsert() {
 		Columns("id", "name", "email").
 		Values(1, "John Doe", "john@example.com")
 
-	sqlI1, paramsI1, err := i1.ToSql()
-	if err != nil {
-		fmt.Printf("Error building insert 1: %v\n", err)
-
-		return
-	}
+	sqlI1, paramsI1, _ := i1.ToSql()
 	fmt.Println("Insert 1 (single row with explicit columns):")
 	fmt.Println(sqlI1)
 	fmt.Println("Params:", paramsI1)
@@ -30,12 +25,7 @@ func ExampleInsert() {
 		Values(2, "Jane Smith", "jane@example.com").
 		Values(3, "Bob Wilson", "bob@example.com")
 
-	sqlI2, paramsI2, err := i2.ToSql()
-	if err != nil {
-		fmt.Printf("Error building insert 2: %v\n", err)
-
-		return
-	}
+	sqlI2, paramsI2, _ := i2.ToSql()
 	fmt.Println("Insert 2 (multiple rows):")
 	fmt.Println(sqlI2)
 	fmt.Println("Params:", paramsI2)
@@ -50,12 +40,7 @@ func ExampleInsert() {
 			[]any{3, "Doohickey", 39.99},
 		)
 
-	sqlI3, paramsI3, err := i3.ToSql()
-	if err != nil {
-		fmt.Printf("Error building insert 3: %v\n", err)
-
-		return
-	}
+	sqlI3, paramsI3, _ := i3.ToSql()
 	fmt.Println("Insert 3 (bulk insert with ValuesRows):")
 	fmt.Println(sqlI3)
 	fmt.Println("Params:", paramsI3)
@@ -71,12 +56,7 @@ func ExampleInsert() {
 	user := User{ID: 42, Name: "Alice", Email: "alice@example.com"}
 	i4 := sqlc.Into("users").Records(user)
 
-	sqlI4, paramsI4, err := i4.ToSql()
-	if err != nil {
-		fmt.Printf("Error building insert 4: %v\n", err)
-
-		return
-	}
+	sqlI4, paramsI4, _ := i4.ToSql()
 	fmt.Println("Insert 4 (single struct with Records - uses named parameters):")
 	fmt.Println(sqlI4)
 	fmt.Println("Params:", paramsI4, "(nil for named parameters, struct passed to NamedExec)")
@@ -88,12 +68,7 @@ func ExampleInsert() {
 	user12 := User{ID: 12, Name: "User12", Email: "user12@example.com"}
 	i5 := sqlc.Into("users").Records(user10, user11, user12)
 
-	sqlI5, paramsI5, err := i5.ToSql()
-	if err != nil {
-		fmt.Printf("Error building insert 5: %v\n", err)
-
-		return
-	}
+	sqlI5, paramsI5, _ := i5.ToSql()
 	fmt.Println("Insert 5 (multiple structs with Records variadic):")
 	fmt.Println(sqlI5)
 	fmt.Println("Params:", paramsI5)

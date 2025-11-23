@@ -273,7 +273,7 @@ func TestInsertNoColumns(t *testing.T) {
 	sql, params, err := q.ToSql()
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "columns are required")
+	assert.Contains(t, err.Error(), "mismatched values count: expected 0 values for 0 columns, got 2")
 	assert.Empty(t, sql)
 	assert.Nil(t, params)
 }

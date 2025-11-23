@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/refl"
 )
 
@@ -44,7 +45,7 @@ type UpdateQueryBuilder struct {
 	sqlerWhere   *SqlerWhere
 	sqlerOrderBy *SqlerOrderBy
 	limitValue   *int
-	config       *Config // Configuration for struct tags and placeholders
+	config       *QueryBuilderConfig // Configuration for struct tags and placeholders
 	err          error
 }
 
@@ -56,12 +57,13 @@ type UpdateQueryBuilder struct {
 //	Update("users")                   // UPDATE `users`
 //	Update("orders")                  // UPDATE `orders`
 func Update(table string) *UpdateQueryBuilder {
+	cfg := DefaultConfig()
 	return &UpdateQueryBuilder{
 		table:        table,
 		sets:         []Assignment{},
-		sqlerWhere:   NewSqlerWhere(),
-		sqlerOrderBy: NewSqlerOrderBy(),
-		config:       DefaultConfig(),
+		sqlerWhere:   NewSqlerWhere().WithConfig(cfg),
+		sqlerOrderBy: NewSqlerOrderBy().WithConfig(cfg),
+		config:       cfg,
 	}
 }
 
@@ -80,6 +82,7 @@ func (q *UpdateQueryBuilder) copyQuery() *UpdateQueryBuilder {
 	// Copy the SqlerOrderBy
 	newSqlerOrderBy := &SqlerOrderBy{
 		clauses: append([]string{}, q.sqlerOrderBy.clauses...),
+		config:  q.sqlerOrderBy.config,
 		err:     q.sqlerOrderBy.err,
 	}
 
@@ -132,12 +135,13 @@ func (q *UpdateQueryBuilder) WithClient(client Querier) *UpdateQueryBuilder {
 //
 // Example:
 //
-//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	config := &QueryBuilderConfig{StructTag: "json", Placeholder: "$"}
 //	query := Update("users").WithConfig(config).Set(...)
-func (q *UpdateQueryBuilder) WithConfig(config *Config) *UpdateQueryBuilder {
+func (q *UpdateQueryBuilder) WithConfig(config *QueryBuilderConfig) *UpdateQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.config = config
 	newQuery.sqlerWhere.WithConfig(config)
+	newQuery.sqlerOrderBy.WithConfig(config)
 
 	return newQuery
 }
@@ -355,10 +359,7 @@ func (q *UpdateQueryBuilder) ToSql() (query string, params []any, err error) {
 	// Handle SetMap
 	if q.setMap != nil {
 		// Sort keys for consistent order
-		keys := make([]string, 0, len(q.setMap))
-		for k := range q.setMap {
-			keys = append(keys, k)
-		}
+		keys := funk.Keys(q.setMap)
 		sort.Strings(keys)
 
 		for _, key := range keys {
@@ -398,14 +399,14 @@ func (q *UpdateQueryBuilder) buildUpdateSql(assignments []Assignment) (query str
 
 	// UPDATE clause
 	sql.WriteString("UPDATE ")
-	sql.WriteString(quoteIdentifier(q.table))
+	sql.WriteString(quoteIdentifier(q.table, q.config.IdentifierQuote))
 
 	// SET clause
 	sql.WriteString(" SET ")
 
 	setClauses := make([]string, len(assignments))
 	for i, assignment := range assignments {
-		quotedCol := quoteIdentifier(assignment.Column)
+		quotedCol := quoteIdentifier(assignment.Column, q.config.IdentifierQuote)
 		if assignment.IsExpr {
 			// Expression - insert directly without parameterization
 			setClauses[i] = fmt.Sprintf("%s = %v", quotedCol, assignment.Value)

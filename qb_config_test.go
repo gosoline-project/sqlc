@@ -15,7 +15,7 @@ func TestConfigCustomStructTag(t *testing.T) {
 		Email string `json:"email"`
 	}
 
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "json",
 		Placeholder: "?",
 	}
@@ -122,7 +122,7 @@ func TestConfigDefaultBehavior(t *testing.T) {
 
 // TestConfigWithClientMethod tests that WithConfig works with all builders
 func TestConfigWithClientMethod(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "json",
 		Placeholder: "?",
 	}
@@ -150,7 +150,7 @@ func TestConfigWithClientMethod(t *testing.T) {
 
 // TestConfigPostgreSQLPlaceholders tests that PostgreSQL-style placeholders ($1, $2, $3) work
 func TestConfigPostgreSQLPlaceholders(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}
@@ -283,7 +283,7 @@ func TestConfigPostgreSQLPlaceholders(t *testing.T) {
 
 // TestConfigOraclePlaceholders tests that Oracle-style placeholders (:1, :2, :3) work
 func TestConfigOraclePlaceholders(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: ":",
 	}
@@ -318,7 +318,7 @@ func TestConfigOraclePlaceholders(t *testing.T) {
 
 // TestConfigPlaceholderEdgeCases tests edge cases with placeholder replacement
 func TestConfigPlaceholderEdgeCases(t *testing.T) {
-	config := &sqlc.Config{
+	config := &sqlc.QueryBuilderConfig{
 		StructTag:   "db",
 		Placeholder: "$",
 	}

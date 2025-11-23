@@ -31,12 +31,7 @@ func ExampleSelectGeneric() {
 		OrderBy("name ASC").
 		Limit(10)
 
-	sql1, params1, err := q1.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 1: %v\n", err)
-
-		return
-	}
+	sql1, params1, _ := q1.ToSql()
 	fmt.Println("Generic Query 1 (automatic columns from struct tags):")
 	fmt.Println(sql1)
 	fmt.Println("Params:", params1)
@@ -49,12 +44,7 @@ func ExampleSelectGeneric() {
 		OrderBy("created_at DESC").
 		Limit(10)
 
-	sql2, params2, err := q2.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 2: %v\n", err)
-
-		return
-	}
+	sql2, params2, _ := q2.ToSql()
 	fmt.Println("Generic Query 2 (explicit columns):")
 	fmt.Println(sql2)
 	fmt.Println("Params:", params2)
@@ -67,12 +57,7 @@ func ExampleSelectGeneric() {
 		OrderBy(sqlc.Col("amount").Desc()).
 		Limit(50)
 
-	sql3, params3, err := q3.ToSql()
-	if err != nil {
-		fmt.Printf("Error building query 3: %v\n", err)
-
-		return
-	}
+	sql3, params3, _ := q3.ToSql()
 	fmt.Println("Generic Query 3 (with expressions):")
 	fmt.Println(sql3)
 	fmt.Println("Params:", params3)

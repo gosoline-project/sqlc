@@ -66,9 +66,9 @@ func (q *UpdateQueryBuilderG[T]) WithClient(client Querier) *UpdateQueryBuilderG
 //
 // Example:
 //
-//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	config := &QueryBuilderConfig{StructTag: "json", Placeholder: "$"}
 //	query := UpdateG[User]("users").WithConfig(config).Set(...)
-func (q *UpdateQueryBuilderG[T]) WithConfig(config *Config) *UpdateQueryBuilderG[T] {
+func (q *UpdateQueryBuilderG[T]) WithConfig(config *QueryBuilderConfig) *UpdateQueryBuilderG[T] {
 	return &UpdateQueryBuilderG[T]{
 		qb: q.qb.WithConfig(config),
 	}

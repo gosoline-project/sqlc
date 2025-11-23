@@ -39,7 +39,7 @@ type DeleteQueryBuilder struct {
 	sqlerWhere   *SqlerWhere
 	sqlerOrderBy *SqlerOrderBy
 	limitValue   *int
-	config       *Config // Configuration for struct tags and placeholders
+	config       *QueryBuilderConfig // Configuration for struct tags and placeholders
 	err          error
 }
 
@@ -51,11 +51,12 @@ type DeleteQueryBuilder struct {
 //	Delete("users")                   // DELETE FROM `users`
 //	Delete("logs")                    // DELETE FROM `logs`
 func Delete(table string) *DeleteQueryBuilder {
+	cfg := DefaultConfig()
 	return &DeleteQueryBuilder{
 		table:        table,
-		sqlerWhere:   NewSqlerWhere(),
-		sqlerOrderBy: NewSqlerOrderBy(),
-		config:       DefaultConfig(),
+		sqlerWhere:   NewSqlerWhere().WithConfig(cfg),
+		sqlerOrderBy: NewSqlerOrderBy().WithConfig(cfg),
+		config:       cfg,
 	}
 }
 
@@ -74,6 +75,7 @@ func (q *DeleteQueryBuilder) copyQuery() *DeleteQueryBuilder {
 	// Copy the SqlerOrderBy
 	newSqlerOrderBy := &SqlerOrderBy{
 		clauses: append([]string{}, q.sqlerOrderBy.clauses...),
+		config:  q.sqlerOrderBy.config,
 		err:     q.sqlerOrderBy.err,
 	}
 
@@ -114,12 +116,13 @@ func (q *DeleteQueryBuilder) WithClient(client Querier) *DeleteQueryBuilder {
 //
 // Example:
 //
-//	config := &Config{StructTag: "json", Placeholder: "$"}
+//	config := &QueryBuilderConfig{StructTag: "json", Placeholder: "$"}
 //	query := Delete("users").WithConfig(config).Where(...)
-func (q *DeleteQueryBuilder) WithConfig(config *Config) *DeleteQueryBuilder {
+func (q *DeleteQueryBuilder) WithConfig(config *QueryBuilderConfig) *DeleteQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.config = config
 	newQuery.sqlerWhere.WithConfig(config)
+	newQuery.sqlerOrderBy.WithConfig(config)
 
 	return newQuery
 }
@@ -238,7 +241,7 @@ func (q *DeleteQueryBuilder) buildDeleteSql() (query string, params []any, err e
 
 	// DELETE FROM clause
 	sql.WriteString("DELETE FROM ")
-	sql.WriteString(quoteIdentifier(q.table))
+	sql.WriteString(quoteIdentifier(q.table, q.config.IdentifierQuote))
 
 	// WHERE clause
 	var whereSQL string

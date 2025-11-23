@@ -3,6 +3,8 @@ package sqlc
 import (
 	"fmt"
 	"strings"
+
+	"github.com/justtrackio/gosoline/pkg/funk"
 )
 
 // Expression represents a SQL expression that can be used in queries.
@@ -406,23 +408,21 @@ func (e *Expression) NotBetween(min any, max any) *Expression {
 
 // toSQL converts the expression to a SQL fragment for SELECT, GROUP BY, or ORDER BY clauses.
 // It handles column quoting, function wrapping, aliases, and direction modifiers.
-// Literal values (created via Lit()) are not quoted.
-func (e *Expression) toSQL() string {
+func (e *Expression) toSQL(quote string) string {
 	var sql string
 	if e.isLiteral {
 		sql = e.raw // Don't quote literal values
 	} else if e.raw != "" {
-		sql = quoteIdentifier(e.raw)
+		sql = quoteIdentifier(e.raw, quote)
 	}
 
 	if e.function != "" {
 		// Handle functions with subExpressions (like CONCAT, CONCAT_WS)
 		switch {
 		case len(e.subExpressions) > 0:
-			argStrs := make([]string, len(e.subExpressions))
-			for i, subExpr := range e.subExpressions {
-				argStrs[i] = subExpr.toSQL()
-			}
+			argStrs := funk.Map(e.subExpressions, func(subExpr *Expression) string {
+				return subExpr.toSQL(quote)
+			})
 			sql = fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, ", "))
 		case e.function == "LOCATE" && len(e.functionArgs) > 0:
 			// LOCATE has reversed argument order: LOCATE(substr, str)
@@ -431,11 +431,9 @@ func (e *Expression) toSQL() string {
 			// Build function arguments normally
 			args := sql
 			if len(e.functionArgs) > 0 {
-				argStrs := make([]string, len(e.functionArgs)+1)
-				argStrs[0] = sql
-				for i, arg := range e.functionArgs {
-					argStrs[i+1] = fmt.Sprintf("%v", arg)
-				}
+				argStrs := append([]string{sql}, funk.Map(e.functionArgs, func(arg any) string {
+					return fmt.Sprintf("%v", arg)
+				})...)
 				args = strings.Join(argStrs, ", ")
 			}
 			sql = fmt.Sprintf("%s(%s)", e.function, args)
@@ -454,19 +452,19 @@ func (e *Expression) toSQL() string {
 // toConditionSQL converts the expression to a WHERE condition SQL fragment.
 // It handles simple conditions (=, !=, >, <, etc.), IN/NOT IN, NULL checks,
 // and composite expressions (AND, OR, NOT).
-func (e *Expression) toConditionSQL() string {
+func (e *Expression) toConditionSQL(quote string) string {
 	// Handle composite expressions (AND, OR, NOT)
 	if e.operator != "" {
-		return e.toCompositeConditionSQL()
+		return e.toCompositeConditionSQL(quote)
 	}
 
 	// Handle simple conditions
 	if e.condition == "" {
-		return e.toSQL() // Use toSQL() to handle functions
+		return e.toSQL(quote) // Use toSQL() to handle functions
 	}
 
 	// Get the column expression (may include function)
-	colExpr := e.toSQL()
+	colExpr := e.toSQL(quote)
 
 	if e.condition == "IS NULL" || e.condition == "IS NOT NULL" {
 		return fmt.Sprintf("%s %s", colExpr, e.condition)
@@ -490,10 +488,10 @@ func (e *Expression) toConditionSQL() string {
 
 // toCompositeConditionSQL handles composite expressions (AND, OR, NOT).
 // It recursively processes sub-expressions and combines them with the appropriate operator.
-func (e *Expression) toCompositeConditionSQL() string {
+func (e *Expression) toCompositeConditionSQL(quote string) string {
 	if e.operator == "NOT" {
 		if len(e.subExpressions) > 0 {
-			return fmt.Sprintf("NOT (%s)", e.subExpressions[0].toConditionSQL())
+			return fmt.Sprintf("NOT (%s)", e.subExpressions[0].toConditionSQL(quote))
 		}
 
 		return ""
@@ -504,10 +502,9 @@ func (e *Expression) toCompositeConditionSQL() string {
 		return ""
 	}
 
-	parts := make([]string, len(e.subExpressions))
-	for i, expr := range e.subExpressions {
-		parts[i] = expr.toConditionSQL()
-	}
+	parts := funk.Map(e.subExpressions, func(expr *Expression) string {
+		return expr.toConditionSQL(quote)
+	})
 
 	return fmt.Sprintf("(%s)", strings.Join(parts, fmt.Sprintf(" %s ", e.operator)))
 }

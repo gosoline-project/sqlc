@@ -24,30 +24,22 @@ func ExampleUpdateGeneric() {
 	// Example 1: Update using a struct record
 	user := User{Name: "John Doe Updated", Email: "john.updated@example.com"}
 
-	result, err := sqlc.UpdateG[User]("users").
+	result, _ := sqlc.UpdateG[User]("users").
 		WithClient(client).
 		SetRecord(user).
 		Where("id = ?", 1).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error updating user: %v\n", err)
-		return
-	}
 
 	rowsAffected, _ := result.RowsAffected()
 	fmt.Printf("Updated %d user(s)\n", rowsAffected)
 
 	// Example 2: Update using individual Set calls
-	result, err = sqlc.UpdateG[User]("users").
+	result, _ = sqlc.UpdateG[User]("users").
 		WithClient(client).
 		Set("name", "Jane Smith").
 		Set("email", "jane@example.com").
 		Where("id = ?", 2).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error updating user: %v\n", err)
-		return
-	}
 
 	// Example 3: Update using a map
 	updates := map[string]any{
@@ -55,50 +47,34 @@ func ExampleUpdateGeneric() {
 		"email": "bob@example.com",
 	}
 
-	result, err = sqlc.UpdateG[User]("users").
+	result, _ = sqlc.UpdateG[User]("users").
 		WithClient(client).
 		SetMap(updates).
 		Where("id = ?", 3).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error updating user: %v\n", err)
-		return
-	}
 
 	// Example 4: Update with expression
-	result, err = sqlc.UpdateG[User]("users").
+	result, _ = sqlc.UpdateG[User]("users").
 		WithClient(client).
 		SetExpr("name", "UPPER(name)").
 		SetExpr("updated_at", "NOW()").
 		Where("id = ?", 4).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error updating user: %v\n", err)
-		return
-	}
 
 	// Example 5: Update with multiple WHERE conditions
-	result, err = sqlc.UpdateG[User]("users").
+	result, _ = sqlc.UpdateG[User]("users").
 		WithClient(client).
 		Set("status", "active").
 		Where("created_at < ?", "2023-01-01").
 		Where("status = ?", "pending").
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error updating users: %v\n", err)
-		return
-	}
 
 	// Example 6: Update with ORDER BY and LIMIT
-	result, err = sqlc.UpdateG[User]("users").
+	result, _ = sqlc.UpdateG[User]("users").
 		WithClient(client).
 		Set("priority", "high").
 		Where("status = ?", "pending").
 		OrderBy("created_at ASC").
 		Limit(5).
 		Exec(ctx)
-	if err != nil {
-		fmt.Printf("Error updating oldest pending users: %v\n", err)
-		return
-	}
 }
