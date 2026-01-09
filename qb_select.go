@@ -24,19 +24,20 @@ import (
 //		Limit(10)
 //	sql, args, err := query.ToSql()
 type SelectQueryBuilder struct {
-	client       Querier
-	config       *QueryBuilderConfig
-	table        string
-	tableAlias   string
-	projections  []string
-	distinct     bool
-	sqlerWhere   *SqlerWhere
-	sqlerGroupBy *SqlerGroupBy
-	sqlerHaving  *SqlerHaving
-	sqlerOrderBy *SqlerOrderBy
-	limitValue   *int
-	offsetValue  *int
-	err          error
+	client          Querier
+	config          *QueryBuilderConfig
+	table           string
+	tableAlias      string
+	projections     []string
+	projectionExprs []*Expression // expressions in projections that may have bind parameters
+	distinct        bool
+	sqlerWhere      *SqlerWhere
+	sqlerGroupBy    *SqlerGroupBy
+	sqlerHaving     *SqlerHaving
+	sqlerOrderBy    *SqlerOrderBy
+	limitValue      *int
+	offsetValue     *int
+	err             error
 }
 
 // From creates a new SelectQueryBuilder for the specified table.
@@ -94,17 +95,18 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 	}
 
 	newQuery := &SelectQueryBuilder{
-		client:       q.client,
-		config:       q.config,
-		table:        q.table,
-		tableAlias:   q.tableAlias,
-		projections:  append([]string{}, q.projections...),
-		distinct:     q.distinct,
-		sqlerWhere:   newSqlerWhere,
-		sqlerGroupBy: newSqlerGroupBy,
-		sqlerHaving:  newSqlerHaving,
-		sqlerOrderBy: newSqlerOrderBy,
-		err:          q.err,
+		client:          q.client,
+		config:          q.config,
+		table:           q.table,
+		tableAlias:      q.tableAlias,
+		projections:     append([]string{}, q.projections...),
+		projectionExprs: append([]*Expression{}, q.projectionExprs...),
+		distinct:        q.distinct,
+		sqlerWhere:      newSqlerWhere,
+		sqlerGroupBy:    newSqlerGroupBy,
+		sqlerHaving:     newSqlerHaving,
+		sqlerOrderBy:    newSqlerOrderBy,
+		err:             q.err,
 	}
 	if q.limitValue != nil {
 		val := *q.limitValue
@@ -179,13 +181,16 @@ func (q *SelectQueryBuilder) As(alias string) *SelectQueryBuilder {
 func (q *SelectQueryBuilder) Columns(cols ...any) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.projections = []string{}
+	newQuery.projectionExprs = []*Expression{}
 
 	for i, col := range cols {
 		switch v := col.(type) {
 		case string:
 			newQuery.projections = append(newQuery.projections, quoteIdentifier(v, newQuery.config.IdentifierQuote))
+			newQuery.projectionExprs = append(newQuery.projectionExprs, nil) // no expression for string columns
 		case *Expression:
 			newQuery.projections = append(newQuery.projections, v.toSQL(newQuery.config.IdentifierQuote))
+			newQuery.projectionExprs = append(newQuery.projectionExprs, v) // store expression for parameter collection
 		default:
 			newQuery.err = fmt.Errorf("invalid type for Columns argument %d: expected string or *Expression, got %T", i, col)
 
@@ -213,8 +218,10 @@ func (q *SelectQueryBuilder) Column(col any) *SelectQueryBuilder {
 	switch v := col.(type) {
 	case string:
 		newQuery.projections = append(newQuery.projections, quoteIdentifier(v, newQuery.config.IdentifierQuote))
+		newQuery.projectionExprs = append(newQuery.projectionExprs, nil) // no expression for string columns
 	case *Expression:
 		newQuery.projections = append(newQuery.projections, v.toSQL(newQuery.config.IdentifierQuote))
+		newQuery.projectionExprs = append(newQuery.projectionExprs, v) // store expression for parameter collection
 	default:
 		newQuery.err = fmt.Errorf("invalid type for Column argument: expected string or *Expression, got %T", col)
 
@@ -434,6 +441,13 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 		sqlBuilder.WriteString("*")
 	} else {
 		sqlBuilder.WriteString(strings.Join(q.projections, ", "))
+		// Collect parameters from projection expressions
+		for _, expr := range q.projectionExprs {
+			if expr != nil {
+				params = append(params, expr.collectParameters()...)
+			}
+		}
+		paramIndex = len(params)
 	}
 
 	// FROM clause

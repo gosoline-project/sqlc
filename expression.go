@@ -15,17 +15,21 @@ import (
 //   - Composite conditions (AND, OR, NOT)
 //   - ORDER BY directions (Asc, Desc)
 //   - Aliases (As)
+//   - Bind parameters (via Param)
 //
 // Expressions are immutable - each method returns a new Expression instance.
 type Expression struct {
 	raw          string
 	function     string
-	functionArgs []any // additional arguments for functions like ROUND(col, 2)
+	functionArgs []any         // additional arguments for functions like ROUND(col, 2) - legacy, inline rendering
+	funcArgs     []*Expression // new: function arguments as expressions (supports bind params)
 	alias        string
 	direction    string // for ORDER BY
 	condition    string // for WHERE conditions like "IN", "=", etc.
 	parameters   []any
 	isLiteral    bool // if true, raw value is not quoted
+	isParam      bool // if true, this is a bind parameter (renders as "?")
+	paramValue   any  // the value for bind parameter
 	// For composite expressions (AND, OR, NOT)
 	operator       string // "AND", "OR", "NOT"
 	subExpressions []*Expression
@@ -39,11 +43,14 @@ func (e *Expression) copy() *Expression {
 		raw:            e.raw,
 		function:       e.function,
 		functionArgs:   e.functionArgs,
+		funcArgs:       e.funcArgs,
 		alias:          e.alias,
 		direction:      e.direction,
 		condition:      e.condition,
 		parameters:     e.parameters,
 		isLiteral:      e.isLiteral,
+		isParam:        e.isParam,
+		paramValue:     e.paramValue,
 		operator:       e.operator,
 		subExpressions: e.subExpressions,
 	}
@@ -129,7 +136,7 @@ func Col(name string) *Expression {
 //	Literal("CURRENT_TIMESTAMP")
 //	Literal("COALESCE(amount, 0)")
 func Literal(sql string) *Expression {
-	return &Expression{raw: sql}
+	return &Expression{raw: sql, isLiteral: true}
 }
 
 // Lit creates a literal value expression that is not quoted.
@@ -149,6 +156,57 @@ func Literal(sql string) *Expression {
 //	Lit(3.14)                    // Literal: 3.14
 func Lit(value any) *Expression {
 	return &Expression{raw: fmt.Sprintf("%v", value), isLiteral: true}
+}
+
+// Param creates a bind parameter expression.
+// When rendered, it outputs "?" and the value is collected by collectParameters().
+// Use this when you need to pass a value as a bind parameter in function calls.
+//
+// Example:
+//
+//	Param("2026-01")           // Renders as "?" with param value "2026-01"
+//	Param(100)                 // Renders as "?" with param value 100
+func Param(value any) *Expression {
+	return &Expression{
+		isParam:    true,
+		paramValue: value,
+	}
+}
+
+// toArg converts any value to an Expression suitable for use as a function argument.
+// This is used internally by function helpers to handle mixed argument types:
+//   - *Expression: used as-is
+//   - string: converted to Param (bind parameter)
+//   - other values: converted to Param (bind parameter)
+//
+// Use Col() explicitly if you need to reference a column by name.
+// Use Lit() explicitly if you need to embed a literal value in SQL without binding.
+func toArg(arg any) *Expression {
+	switch v := arg.(type) {
+	case *Expression:
+		return v
+	default:
+		return Param(v)
+	}
+}
+
+// buildFunc creates a function expression with the given name and arguments.
+// Arguments are converted using toArg(), so:
+//   - *Expression args are used as-is
+//   - string args become bind parameters
+//   - other values become bind parameters
+//
+// This is the recommended way to build function expressions that need bind parameters.
+func buildFunc(name string, args ...any) *Expression {
+	funcArgs := make([]*Expression, len(args))
+	for i, arg := range args {
+		funcArgs[i] = toArg(arg)
+	}
+
+	return &Expression{
+		function: name,
+		funcArgs: funcArgs,
+	}
 }
 
 // And combines multiple expressions with the AND logical operator.
@@ -190,6 +248,35 @@ func Not(expr *Expression) *Expression {
 	return &Expression{
 		operator:       "NOT",
 		subExpressions: []*Expression{expr},
+	}
+}
+
+// Coalesce creates a COALESCE function expression.
+// It accepts a list of arguments which can be *Expression, string (column name), or other values (literals).
+// Returns a new Expression representing the COALESCE function call.
+//
+// Example:
+//
+//	Coalesce(Col("updated_at"), Col("created_at")) // COALESCE(`updated_at`, `created_at`)
+//	Coalesce(Col("amount").Sum(), Lit(0))          // COALESCE(SUM(`amount`), 0)
+//	Coalesce("nickname", "real_name")              // COALESCE(`nickname`, `real_name`)
+func Coalesce(args ...any) *Expression {
+	var subExprs []*Expression
+
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case *Expression:
+			subExprs = append(subExprs, v)
+		case string:
+			subExprs = append(subExprs, Col(v))
+		default:
+			subExprs = append(subExprs, Lit(v))
+		}
+	}
+
+	return &Expression{
+		function:       "COALESCE",
+		subExpressions: subExprs,
 	}
 }
 
@@ -408,27 +495,60 @@ func (e *Expression) NotBetween(min any, max any) *Expression {
 
 // toSQL converts the expression to a SQL fragment for SELECT, GROUP BY, or ORDER BY clauses.
 // It handles column quoting, function wrapping, aliases, and direction modifiers.
+// For expressions with conditions (like Eq, Gt), it delegates to toConditionSQL.
 func (e *Expression) toSQL(quote string) string {
+	// If expression has a condition or operator, delegate to toConditionSQL to get the full condition
+	// This handles cases like IF(col = ?, ...) where the condition needs to be rendered
+	if e.condition != "" || e.operator != "" {
+		sql := e.toConditionSQL(quote)
+		// Add alias if present (toConditionSQL doesn't add aliases)
+		if e.alias != "" {
+			sql = fmt.Sprintf("%s AS %s", sql, e.alias)
+		}
+
+		return sql
+	}
+
+	return e.toBaseSQL(quote)
+}
+
+// toBaseSQL converts the expression to a SQL fragment without considering conditions.
+// This is used internally to avoid infinite recursion between toSQL and toConditionSQL.
+func (e *Expression) toBaseSQL(quote string) string {
 	var sql string
-	if e.isLiteral {
+
+	// Handle bind parameter expressions
+	if e.isParam {
+		sql = "?"
+	} else if e.isLiteral {
 		sql = e.raw // Don't quote literal values
 	} else if e.raw != "" {
 		sql = quoteIdentifier(e.raw, quote)
 	}
 
 	if e.function != "" {
-		// Handle functions with subExpressions (like CONCAT, CONCAT_WS)
-		switch {
-		case len(e.subExpressions) > 0:
+		// Handle functions with funcArgs (new parameter-aware style)
+		if len(e.funcArgs) > 0 {
+			argStrs := funk.Map(e.funcArgs, func(arg *Expression) string {
+				return arg.toSQL(quote)
+			})
+			sql = fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, ", "))
+		} else if len(e.subExpressions) > 0 {
+			// Handle functions with subExpressions (like CONCAT, CONCAT_WS, COALESCE, CAST)
 			argStrs := funk.Map(e.subExpressions, func(subExpr *Expression) string {
 				return subExpr.toSQL(quote)
 			})
-			sql = fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, ", "))
-		case e.function == "LOCATE" && len(e.functionArgs) > 0:
-			// LOCATE has reversed argument order: LOCATE(substr, str)
+			// CAST uses space separator: CAST(expr AS type)
+			separator := ", "
+			if e.function == "CAST" {
+				separator = " "
+			}
+			sql = fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, separator))
+		} else if e.function == "LOCATE" && len(e.functionArgs) > 0 {
+			// LOCATE has reversed argument order: LOCATE(substr, str) - legacy handling
 			sql = fmt.Sprintf("LOCATE(%v, %s)", e.functionArgs[0], sql)
-		default:
-			// Build function arguments normally
+		} else {
+			// Build function arguments normally (legacy inline style)
 			args := sql
 			if len(e.functionArgs) > 0 {
 				argStrs := append([]string{sql}, funk.Map(e.functionArgs, func(arg any) string {
@@ -460,11 +580,11 @@ func (e *Expression) toConditionSQL(quote string) string {
 
 	// Handle simple conditions
 	if e.condition == "" {
-		return e.toSQL(quote) // Use toSQL() to handle functions
+		return e.toBaseSQL(quote) // Use toBaseSQL() to handle functions without conditions
 	}
 
-	// Get the column expression (may include function)
-	colExpr := e.toSQL(quote)
+	// Get the column expression (may include function) using toBaseSQL to avoid infinite recursion
+	colExpr := e.toBaseSQL(quote)
 
 	if e.condition == "IS NULL" || e.condition == "IS NOT NULL" {
 		return fmt.Sprintf("%s %s", colExpr, e.condition)
@@ -511,11 +631,18 @@ func (e *Expression) toCompositeConditionSQL(quote string) string {
 
 // collectParameters recursively collects all parameters from the expression tree.
 // For composite expressions (AND, OR, NOT), it collects parameters from all sub-expressions.
-// For simple expressions, it returns the expression's own parameters.
+// For function expressions with funcArgs, it collects parameters from all arguments.
+// For bind parameter expressions (isParam), it returns the param value.
+// For simple expressions with conditions, it returns the expression's own parameters.
 func (e *Expression) collectParameters() []any {
 	var params []any
 
-	// If this is a composite expression, recursively collect from sub-expressions
+	// Handle bind parameter expressions
+	if e.isParam {
+		return []any{e.paramValue}
+	}
+
+	// If this is a composite expression (AND, OR, NOT), recursively collect from sub-expressions
 	if e.operator != "" {
 		for _, subExpr := range e.subExpressions {
 			params = append(params, subExpr.collectParameters()...)
@@ -524,7 +651,22 @@ func (e *Expression) collectParameters() []any {
 		return params
 	}
 
-	// Otherwise, return this expression's parameters
+	// Handle function expressions with funcArgs (new parameter-aware style)
+	if len(e.funcArgs) > 0 {
+		for _, arg := range e.funcArgs {
+			params = append(params, arg.collectParameters()...)
+		}
+	}
 
-	return e.parameters
+	// Handle function expressions with subExpressions (like CONCAT, COALESCE)
+	if e.function != "" && len(e.subExpressions) > 0 {
+		for _, subExpr := range e.subExpressions {
+			params = append(params, subExpr.collectParameters()...)
+		}
+	}
+
+	// Add condition parameters (for Eq, Gt, In, etc.)
+	params = append(params, e.parameters...)
+
+	return params
 }

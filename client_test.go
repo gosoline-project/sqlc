@@ -49,8 +49,11 @@ func setupClient(t *testing.T) (sqlc.Client, sqlmock.Sqlmock, *mockExecutor) {
 	// Create mock executor
 	executor := newMockExecutor()
 
+	// Create default config
+	qbConfig := sqlc.DefaultConfig()
+
 	// Create client with interfaces
-	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor)
+	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
 
 	t.Cleanup(func() {
 		// Don't close client here since each test manages its own expectations
@@ -373,8 +376,9 @@ func TestClientClose(t *testing.T) {
 
 	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
 	executor := newMockExecutor()
+	qbConfig := sqlc.DefaultConfig()
 
-	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor)
+	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
 
 	mock.ExpectClose()
 
@@ -390,6 +394,7 @@ func TestClientWithExecutorRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
+	qbConfig := sqlc.DefaultConfig()
 
 	t.Run("executor is called for operations", func(t *testing.T) {
 		executorCalled := false
@@ -401,7 +406,7 @@ func TestClientWithExecutorRetry(t *testing.T) {
 			},
 		}
 
-		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor)
+		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
 
 		// Note: We're not using mock expectations here since this test is focused on executor behavior
 		// The actual DB call will fail, but that's okay - we're testing the executor wrapping
@@ -428,7 +433,7 @@ func TestClientWithExecutorRetry(t *testing.T) {
 			},
 		}
 
-		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor)
+		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
 
 		type User struct {
 			ID   int    `db:"id"`

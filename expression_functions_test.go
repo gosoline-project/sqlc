@@ -285,3 +285,51 @@ func TestExpression_ComplexNumericCombinations(t *testing.T) {
 		assert.Contains(t, sql, "MOD(`id`, 100) AS id_mod")
 	})
 }
+
+func TestCoalesce(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     *sqlc.Expression
+		expected string
+	}{
+		{
+			name:     "Coalesce with two columns",
+			expr:     sqlc.Coalesce(sqlc.Col("updated_at"), sqlc.Col("created_at")),
+			expected: "COALESCE(`updated_at`, `created_at`)",
+		},
+		{
+			name:     "Coalesce with expression and literal",
+			expr:     sqlc.Coalesce(sqlc.Col("amount").Sum(), sqlc.Lit(0)),
+			expected: "COALESCE(SUM(`amount`), 0)",
+		},
+		{
+			name:     "Coalesce with strings treated as columns",
+			expr:     sqlc.Coalesce("nickname", "real_name"),
+			expected: "COALESCE(`nickname`, `real_name`)",
+		},
+		{
+			name:     "Coalesce with alias",
+			expr:     sqlc.Coalesce(sqlc.Col("amount").Sum(), sqlc.Lit(0)).As("total_amount"),
+			expected: "COALESCE(SUM(`amount`), 0) AS total_amount",
+		},
+		{
+			name:     "Coalesce with raw values (literal)",
+			expr:     sqlc.Coalesce("status", "unknown"),
+			expected: "COALESCE(`status`, `unknown`)", // String args are treated as columns by default logic in Coalesce helper
+		},
+		{
+			name:     "Coalesce with mixed types",
+			expr:     sqlc.Coalesce(sqlc.Col("a"), "b", sqlc.Lit(10)),
+			expected: "COALESCE(`a`, `b`, 10)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql, _, err := sqlc.From("dummy").Columns(tt.expr).ToSql()
+			assert.NoError(t, err)
+			expectedFull := "SELECT " + tt.expected + " FROM `dummy`"
+			assert.Equal(t, expectedFull, sql)
+		})
+	}
+}
