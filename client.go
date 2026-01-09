@@ -46,6 +46,10 @@ type (
 		Close() error
 		// Qb returns a new QueryBuilder instance for constructing SQL queries.
 		Q() *QueryBuilder
+		// WithTx executes the given function within a transaction.
+		// If the function returns an error, the transaction is rolled back.
+		// If the function completes successfully, the transaction is committed.
+		WithTx(ctx context.Context, fn func(cttx Tx) error, ops ...*sql.TxOptions) error
 	}
 
 	// Result represents the result of an Exec operation (rows affected, last insert ID).
@@ -170,4 +174,30 @@ func (c *client) BeginTx(ctx context.Context, ops ...*sql.TxOptions) (Tx, error)
 // Close closes the database connection and releases any associated resources.
 func (c *client) Close() error {
 	return c.db.Close()
+}
+
+// WithTx executes the given function within a transaction.
+// If the function returns an error, the transaction is rolled back.
+// If the function completes successfully, the transaction is committed.
+func (c *client) WithTx(ctx context.Context, fn func(cttx Tx) error, ops ...*sql.TxOptions) error {
+	var err error
+	var cttx Tx
+
+	if cttx, err = c.BeginTx(ctx, ops...); err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	if err = fn(cttx); err != nil {
+		if rbErr := cttx.Rollback(); rbErr != nil {
+			return fmt.Errorf("transaction rollback failed: %w (original error: %v)", rbErr, err)
+		}
+
+		return err
+	}
+
+	if err = cttx.Commit(); err != nil {
+		return fmt.Errorf("transaction commit failed: %w", err)
+	}
+
+	return nil
 }

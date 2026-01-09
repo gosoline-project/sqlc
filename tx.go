@@ -17,6 +17,7 @@ type (
 		Commit() error
 		Rollback() error
 		SqlTx() *sqlx.Tx
+		WithContext(ctx context.Context) Tx
 	}
 )
 
@@ -32,6 +33,10 @@ func newTx(ctx context.Context, logger log.Logger, executor exec.Executor, txx *
 		ctx:         ctx,
 		tx:          txx,
 	}
+}
+
+func (t *tx) WithContext(ctx context.Context) Tx {
+	return newTx(ctx, t.logger, t.executor, t.tx)
 }
 
 func (t *tx) Deadline() (deadline time.Time, ok bool) {

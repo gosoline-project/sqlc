@@ -13,360 +13,484 @@ import (
 	logmocks "github.com/justtrackio/gosoline/pkg/log/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
-// mockExecutor is a simple executor that just runs the function
-type mockExecutor struct {
-	executeFunc func(ctx context.Context, f exec.Executable) (any, error)
+// User is a common test struct used across multiple tests
+type User struct {
+	ID    int    `db:"id"`
+	Name  string `db:"name"`
+	Email string `db:"email"`
 }
 
-func (m *mockExecutor) Execute(ctx context.Context, f exec.Executable, notifier ...exec.Notify) (any, error) {
-	if m.executeFunc != nil {
-		return m.executeFunc(ctx, f)
-	}
-
-	return f(ctx)
+// ClientTestSuite is the base test suite for client tests
+type ClientTestSuite struct {
+	suite.Suite
+	client sqlc.Client
+	mock   sqlmock.Sqlmock
+	ctx    context.Context
 }
 
-func newMockExecutor() *mockExecutor {
-	return &mockExecutor{}
-}
-
-// setupClient creates a client with mocked logger, db, and executor
-func setupClient(t *testing.T) (sqlc.Client, sqlmock.Sqlmock, *mockExecutor) {
-	t.Helper()
+// SetupTest runs before each test in the suite
+func (s *ClientTestSuite) SetupTest() {
+	s.ctx = context.Background()
 
 	// Create mock logger
-	logger := logmocks.NewLoggerMock(logmocks.WithTestingT(t), logmocks.WithMockAll)
+	logger := logmocks.NewLoggerMock(logmocks.WithTestingT(s.T()), logmocks.WithMockAll)
 
 	// Create mock database
 	mockDB, mock, err := sqlmock.New()
-	require.NoError(t, err)
+	s.Require().NoError(err)
 
 	// Wrap in sqlx.DB
 	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
-
-	// Create mock executor
-	executor := newMockExecutor()
+	s.mock = mock
 
 	// Create default config
 	qbConfig := sqlc.DefaultConfig()
 
-	// Create client with interfaces
-	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
-
-	t.Cleanup(func() {
-		// Don't close client here since each test manages its own expectations
-		// Just verify all expectations were met
-		assert.NoError(t, mock.ExpectationsWereMet())
-	})
-
-	return client, mock, executor
+	// Create client with default executor
+	s.client = sqlc.NewClientWithInterfaces(logger, sqlxDB, exec.NewDefaultExecutor(), qbConfig)
 }
 
-func TestClientGet(t *testing.T) {
-	client, mock, _ := setupClient(t)
-	ctx := context.Background()
+// TearDownTest runs after each test in the suite
+func (s *ClientTestSuite) TearDownTest() {
+	s.Assert().NoError(s.mock.ExpectationsWereMet())
+}
 
-	t.Run("successful get", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"id", "name"}).
-			AddRow(1, "John")
+// TestClientSuite runs the client test suite
+func TestClientSuite(t *testing.T) {
+	suite.Run(t, new(ClientTestSuite))
+}
 
-		mock.ExpectQuery("SELECT (.+) FROM users WHERE id = ?").
-			WithArgs(1).
-			WillReturnRows(rows)
+// -----------------------------------------------------------------------------
+// Get Tests
+// -----------------------------------------------------------------------------
 
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
+func (s *ClientTestSuite) TestGet_Success() {
+	rows := sqlmock.NewRows([]string{"id", "name"}).
+		AddRow(1, "John")
 
+	s.mock.ExpectQuery("SELECT (.+) FROM users WHERE id = ?").
+		WithArgs(1).
+		WillReturnRows(rows)
+
+	var user User
+	err := s.client.Get(s.ctx, &user, "SELECT id, name FROM users WHERE id = ?", 1)
+
+	s.Require().NoError(err)
+	s.Assert().Equal(1, user.ID)
+	s.Assert().Equal("John", user.Name)
+}
+
+func (s *ClientTestSuite) TestGet_NoRowsFound() {
+	s.mock.ExpectQuery("SELECT (.+) FROM users WHERE id = ?").
+		WithArgs(999).
+		WillReturnError(sql.ErrNoRows)
+
+	var user User
+	err := s.client.Get(s.ctx, &user, "SELECT id, name FROM users WHERE id = ?", 999)
+
+	s.Assert().ErrorIs(err, sql.ErrNoRows)
+}
+
+func (s *ClientTestSuite) TestGet_DatabaseError() {
+	dbErr := errors.New("database connection failed")
+	s.mock.ExpectQuery("SELECT (.+) FROM users").
+		WillReturnError(dbErr)
+
+	var user User
+	err := s.client.Get(s.ctx, &user, "SELECT id, name FROM users", nil)
+
+	s.Assert().ErrorIs(err, dbErr)
+}
+
+// -----------------------------------------------------------------------------
+// Exec Tests
+// -----------------------------------------------------------------------------
+
+func (s *ClientTestSuite) TestExec_Insert() {
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("John", "john@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	result, err := s.client.Exec(s.ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
+
+	s.Require().NoError(err)
+	lastID, err := result.LastInsertId()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), lastID)
+
+	rowsAffected, err := result.RowsAffected()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), rowsAffected)
+}
+
+func (s *ClientTestSuite) TestExec_Update() {
+	s.mock.ExpectExec("UPDATE users SET name = ?").
+		WithArgs("Jane", 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	result, err := s.client.Exec(s.ctx, "UPDATE users SET name = ? WHERE id = ?", "Jane", 1)
+
+	s.Require().NoError(err)
+	rowsAffected, err := result.RowsAffected()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), rowsAffected)
+}
+
+func (s *ClientTestSuite) TestExec_Delete() {
+	s.mock.ExpectExec("DELETE FROM users WHERE id = ?").
+		WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	result, err := s.client.Exec(s.ctx, "DELETE FROM users WHERE id = ?", 1)
+
+	s.Require().NoError(err)
+	rowsAffected, err := result.RowsAffected()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), rowsAffected)
+}
+
+func (s *ClientTestSuite) TestExec_DatabaseError() {
+	dbErr := errors.New("constraint violation")
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("John", "john@example.com").
+		WillReturnError(dbErr)
+
+	result, err := s.client.Exec(s.ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
+
+	s.Assert().ErrorIs(err, dbErr)
+	s.Assert().Nil(result)
+}
+
+// -----------------------------------------------------------------------------
+// NamedExec Tests
+// -----------------------------------------------------------------------------
+
+func (s *ClientTestSuite) TestNamedExec_WithStruct() {
+	user := User{Name: "John", Email: "john@example.com"}
+
+	// sqlx binds named params in the order they appear in the SQL: :name, :email
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("John", "john@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	result, err := s.client.NamedExec(s.ctx, "INSERT INTO users (name, email) VALUES (:name, :email)", user)
+
+	s.Require().NoError(err)
+	lastID, err := result.LastInsertId()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), lastID)
+}
+
+func (s *ClientTestSuite) TestNamedExec_WithMap() {
+	params := map[string]any{
+		"name":  "Jane",
+		"email": "jane@example.com",
+	}
+
+	// sqlx binds named params in the order they appear in the SQL: :name, :email
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("Jane", "jane@example.com").
+		WillReturnResult(sqlmock.NewResult(2, 1))
+
+	result, err := s.client.NamedExec(s.ctx, "INSERT INTO users (name, email) VALUES (:name, :email)", params)
+
+	s.Require().NoError(err)
+	lastID, err := result.LastInsertId()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(2), lastID)
+}
+
+func (s *ClientTestSuite) TestNamedExec_DatabaseError() {
+	user := User{Name: "John", Email: "john@example.com"}
+	dbErr := errors.New("unique constraint violation")
+
+	// sqlx binds named params in the order they appear in the SQL: :name, :email
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("John", "john@example.com").
+		WillReturnError(dbErr)
+
+	result, err := s.client.NamedExec(s.ctx, "INSERT INTO users (name, email) VALUES (:name, :email)", user)
+
+	s.Assert().ErrorIs(err, dbErr)
+	s.Assert().Nil(result)
+}
+
+// -----------------------------------------------------------------------------
+// Select Tests
+// -----------------------------------------------------------------------------
+
+func (s *ClientTestSuite) TestSelect_MultipleRows() {
+	rows := sqlmock.NewRows([]string{"id", "name"}).
+		AddRow(1, "John").
+		AddRow(2, "Jane").
+		AddRow(3, "Bob")
+
+	s.mock.ExpectQuery("SELECT (.+) FROM users").
+		WillReturnRows(rows)
+
+	var users []User
+	err := s.client.Select(s.ctx, &users, "SELECT id, name FROM users")
+
+	s.Require().NoError(err)
+	s.Assert().Len(users, 3)
+	s.Assert().Equal("John", users[0].Name)
+	s.Assert().Equal("Jane", users[1].Name)
+	s.Assert().Equal("Bob", users[2].Name)
+}
+
+func (s *ClientTestSuite) TestSelect_EmptyResult() {
+	rows := sqlmock.NewRows([]string{"id", "name"})
+
+	s.mock.ExpectQuery("SELECT (.+) FROM users WHERE id > ?").
+		WithArgs(1000).
+		WillReturnRows(rows)
+
+	var users []User
+	err := s.client.Select(s.ctx, &users, "SELECT id, name FROM users WHERE id > ?", 1000)
+
+	s.Require().NoError(err)
+	s.Assert().Empty(users)
+}
+
+func (s *ClientTestSuite) TestSelect_DatabaseError() {
+	dbErr := errors.New("connection timeout")
+	s.mock.ExpectQuery("SELECT (.+) FROM users").
+		WillReturnError(dbErr)
+
+	var users []User
+	err := s.client.Select(s.ctx, &users, "SELECT id, name FROM users")
+
+	s.Assert().ErrorIs(err, dbErr)
+}
+
+// -----------------------------------------------------------------------------
+// Query Tests
+// -----------------------------------------------------------------------------
+
+func (s *ClientTestSuite) TestQuery_WithIteration() {
+	rows := sqlmock.NewRows([]string{"id", "name"}).
+		AddRow(1, "John").
+		AddRow(2, "Jane")
+
+	s.mock.ExpectQuery("SELECT (.+) FROM users").
+		WillReturnRows(rows)
+
+	resultRows, err := s.client.Query(s.ctx, "SELECT id, name FROM users")
+	s.Require().NoError(err)
+	s.Require().NotNil(resultRows)
+	defer func() {
+		s.Assert().NoError(resultRows.Close())
+	}()
+
+	var users []User
+	for resultRows.Next() {
 		var user User
-		err := client.Get(ctx, &user, "SELECT id, name FROM users WHERE id = ?", 1)
+		err := resultRows.StructScan(&user)
+		s.Require().NoError(err)
+		users = append(users, user)
+	}
 
-		require.NoError(t, err)
-		assert.Equal(t, 1, user.ID)
-		assert.Equal(t, "John", user.Name)
-	})
-
-	t.Run("no rows found", func(t *testing.T) {
-		mock.ExpectQuery("SELECT (.+) FROM users WHERE id = ?").
-			WithArgs(999).
-			WillReturnError(sql.ErrNoRows)
-
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
-		var user User
-		err := client.Get(ctx, &user, "SELECT id, name FROM users WHERE id = ?", 999)
-
-		assert.ErrorIs(t, err, sql.ErrNoRows)
-	})
-
-	t.Run("database error", func(t *testing.T) {
-		dbErr := errors.New("database connection failed")
-		mock.ExpectQuery("SELECT (.+) FROM users").
-			WillReturnError(dbErr)
-
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
-		var user User
-		err := client.Get(ctx, &user, "SELECT id, name FROM users", nil)
-
-		assert.ErrorIs(t, err, dbErr)
-	})
+	s.Require().NoError(resultRows.Err())
+	s.Assert().Len(users, 2)
+	s.Assert().Equal("John", users[0].Name)
+	s.Assert().Equal("Jane", users[1].Name)
 }
 
-func TestClientExec(t *testing.T) {
-	client, mock, _ := setupClient(t)
-	ctx := context.Background()
+func (s *ClientTestSuite) TestQuery_DatabaseError() {
+	dbErr := errors.New("query execution failed")
+	s.mock.ExpectQuery("SELECT (.+) FROM users").
+		WillReturnError(dbErr)
 
-	t.Run("successful insert", func(t *testing.T) {
-		mock.ExpectExec("INSERT INTO users").
-			WithArgs("John", "john@example.com").
-			WillReturnResult(sqlmock.NewResult(1, 1))
+	resultRows, err := s.client.Query(s.ctx, "SELECT id, name FROM users")
 
-		result, err := client.Exec(ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
-
-		require.NoError(t, err)
-		lastID, err := result.LastInsertId()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), lastID)
-
-		rowsAffected, err := result.RowsAffected()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), rowsAffected)
-	})
-
-	t.Run("successful update", func(t *testing.T) {
-		mock.ExpectExec("UPDATE users SET name = ?").
-			WithArgs("Jane", 1).
-			WillReturnResult(sqlmock.NewResult(0, 1))
-
-		result, err := client.Exec(ctx, "UPDATE users SET name = ? WHERE id = ?", "Jane", 1)
-
-		require.NoError(t, err)
-		rowsAffected, err := result.RowsAffected()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), rowsAffected)
-	})
-
-	t.Run("successful delete", func(t *testing.T) {
-		mock.ExpectExec("DELETE FROM users WHERE id = ?").
-			WithArgs(1).
-			WillReturnResult(sqlmock.NewResult(0, 1))
-
-		result, err := client.Exec(ctx, "DELETE FROM users WHERE id = ?", 1)
-
-		require.NoError(t, err)
-		rowsAffected, err := result.RowsAffected()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), rowsAffected)
-	})
-
-	t.Run("database error", func(t *testing.T) {
-		dbErr := errors.New("constraint violation")
-		mock.ExpectExec("INSERT INTO users").
-			WithArgs("John", "john@example.com").
-			WillReturnError(dbErr)
-
-		result, err := client.Exec(ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
-
-		assert.ErrorIs(t, err, dbErr)
-		assert.Nil(t, result)
-	})
+	s.Assert().ErrorIs(err, dbErr)
+	s.Assert().Nil(resultRows)
 }
 
-func TestClientNamedExec(t *testing.T) {
-	client, mock, _ := setupClient(t)
-	ctx := context.Background()
+// -----------------------------------------------------------------------------
+// QueryBuilder Tests
+// -----------------------------------------------------------------------------
 
-	t.Run("successful insert with struct", func(t *testing.T) {
-		type User struct {
-			Name  string `db:"name"`
-			Email string `db:"email"`
-		}
-
-		user := User{Name: "John", Email: "john@example.com"}
-
-		mock.ExpectExec("INSERT INTO users").
-			WithArgs("John", "john@example.com").
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		result, err := client.NamedExec(ctx, "INSERT INTO users (name, email) VALUES (:name, :email)", user)
-
-		require.NoError(t, err)
-		lastID, err := result.LastInsertId()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), lastID)
-	})
-
-	t.Run("successful insert with map", func(t *testing.T) {
-		params := map[string]any{
-			"name":  "Jane",
-			"email": "jane@example.com",
-		}
-
-		mock.ExpectExec("INSERT INTO users").
-			WithArgs("Jane", "jane@example.com").
-			WillReturnResult(sqlmock.NewResult(2, 1))
-
-		result, err := client.NamedExec(ctx, "INSERT INTO users (name, email) VALUES (:name, :email)", params)
-
-		require.NoError(t, err)
-		lastID, err := result.LastInsertId()
-		require.NoError(t, err)
-		assert.Equal(t, int64(2), lastID)
-	})
-
-	t.Run("database error", func(t *testing.T) {
-		type User struct {
-			Name  string `db:"name"`
-			Email string `db:"email"`
-		}
-
-		user := User{Name: "John", Email: "john@example.com"}
-		dbErr := errors.New("unique constraint violation")
-
-		mock.ExpectExec("INSERT INTO users").
-			WithArgs("John", "john@example.com").
-			WillReturnError(dbErr)
-
-		result, err := client.NamedExec(ctx, "INSERT INTO users (name, email) VALUES (:name, :email)", user)
-
-		assert.ErrorIs(t, err, dbErr)
-		assert.Nil(t, result)
-	})
+func (s *ClientTestSuite) TestQ_ReturnsQueryBuilder() {
+	qb := s.client.Q()
+	s.Assert().NotNil(qb)
 }
 
-func TestClientSelect(t *testing.T) {
-	client, mock, _ := setupClient(t)
-	ctx := context.Background()
+func (s *ClientTestSuite) TestQ_IntegrationWithClient() {
+	s.mock.ExpectExec("INSERT INTO `users`").
+		WithArgs("John", "john@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	t.Run("successful select multiple rows", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"id", "name"}).
-			AddRow(1, "John").
-			AddRow(2, "Jane").
-			AddRow(3, "Bob")
+	result, err := s.client.Q().
+		Into("users").
+		Columns("name", "email").
+		Values("John", "john@example.com").
+		WithClient(s.client).
+		Exec(s.ctx)
 
-		mock.ExpectQuery("SELECT (.+) FROM users").
-			WillReturnRows(rows)
-
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
-		var users []User
-		err := client.Select(ctx, &users, "SELECT id, name FROM users")
-
-		require.NoError(t, err)
-		assert.Len(t, users, 3)
-		assert.Equal(t, "John", users[0].Name)
-		assert.Equal(t, "Jane", users[1].Name)
-		assert.Equal(t, "Bob", users[2].Name)
-	})
-
-	t.Run("select empty result", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"id", "name"})
-
-		mock.ExpectQuery("SELECT (.+) FROM users WHERE id > ?").
-			WithArgs(1000).
-			WillReturnRows(rows)
-
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
-		var users []User
-		err := client.Select(ctx, &users, "SELECT id, name FROM users WHERE id > ?", 1000)
-
-		require.NoError(t, err)
-		assert.Empty(t, users)
-	})
-
-	t.Run("database error", func(t *testing.T) {
-		dbErr := errors.New("connection timeout")
-		mock.ExpectQuery("SELECT (.+) FROM users").
-			WillReturnError(dbErr)
-
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
-		var users []User
-		err := client.Select(ctx, &users, "SELECT id, name FROM users")
-
-		assert.ErrorIs(t, err, dbErr)
-	})
+	s.Require().NoError(err)
+	lastID, err := result.LastInsertId()
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), lastID)
 }
 
-func TestClientQuery(t *testing.T) {
-	client, mock, _ := setupClient(t)
-	ctx := context.Background()
+// -----------------------------------------------------------------------------
+// WithTx Tests
+// -----------------------------------------------------------------------------
 
-	t.Run("successful query with iteration", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"id", "name"}).
-			AddRow(1, "John").
-			AddRow(2, "Jane")
+func (s *ClientTestSuite) TestWithTx_SuccessfulCommit() {
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("John", "john@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectCommit()
 
-		mock.ExpectQuery("SELECT (.+) FROM users").
-			WillReturnRows(rows)
-
-		resultRows, err := client.Query(ctx, "SELECT id, name FROM users")
-		require.NoError(t, err)
-		require.NotNil(t, resultRows)
-		defer func() {
-			assert.NoError(t, resultRows.Close())
-		}()
-
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
-		var users []User
-		for resultRows.Next() {
-			var user User
-			err := resultRows.StructScan(&user)
-			require.NoError(t, err)
-			users = append(users, user)
-		}
-
-		require.NoError(t, resultRows.Err())
-		assert.Len(t, users, 2)
-		assert.Equal(t, "John", users[0].Name)
-		assert.Equal(t, "Jane", users[1].Name)
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		_, err := tx.Exec(s.ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
+		return err
 	})
 
-	t.Run("database error", func(t *testing.T) {
-		dbErr := errors.New("query execution failed")
-		mock.ExpectQuery("SELECT (.+) FROM users").
-			WillReturnError(dbErr)
-
-		resultRows, err := client.Query(ctx, "SELECT id, name FROM users")
-
-		assert.ErrorIs(t, err, dbErr)
-		assert.Nil(t, resultRows)
-	})
+	s.Require().NoError(err)
 }
 
-func TestClientQb(t *testing.T) {
-	client, _, _ := setupClient(t)
+func (s *ClientTestSuite) TestWithTx_FunctionErrorRollsBack() {
+	fnErr := errors.New("function failed")
 
-	t.Run("returns query builder", func(t *testing.T) {
-		qb := client.Q()
+	s.mock.ExpectBegin()
+	s.mock.ExpectRollback()
 
-		assert.NotNil(t, qb)
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		return fnErr
 	})
+
+	s.Require().ErrorIs(err, fnErr)
 }
+
+func (s *ClientTestSuite) TestWithTx_DatabaseErrorRollsBack() {
+	dbErr := errors.New("database constraint violation")
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("John", "john@example.com").
+		WillReturnError(dbErr)
+	s.mock.ExpectRollback()
+
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		_, err := tx.Exec(s.ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
+		return err
+	})
+
+	s.Require().ErrorIs(err, dbErr)
+}
+
+func (s *ClientTestSuite) TestWithTx_BeginFailure() {
+	beginErr := errors.New("failed to begin transaction")
+	s.mock.ExpectBegin().WillReturnError(beginErr)
+
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		return nil
+	})
+
+	s.Require().Error(err)
+	s.Assert().Contains(err.Error(), "failed to begin transaction")
+}
+
+func (s *ClientTestSuite) TestWithTx_CommitFailure() {
+	s.mock.ExpectBegin()
+	s.mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
+
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		return nil
+	})
+
+	s.Require().Error(err)
+	s.Assert().Contains(err.Error(), "transaction commit failed")
+}
+
+func (s *ClientTestSuite) TestWithTx_RollbackFailureIncludesOriginalError() {
+	fnErr := errors.New("function error")
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectRollback().WillReturnError(errors.New("rollback failed"))
+
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		return fnErr
+	})
+
+	s.Require().Error(err)
+	s.Assert().Contains(err.Error(), "transaction rollback failed")
+	s.Assert().Contains(err.Error(), "function error")
+}
+
+func (s *ClientTestSuite) TestWithTx_MultipleOperations() {
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec("INSERT INTO users").
+		WithArgs("John", "john@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectExec("INSERT INTO profiles").
+		WithArgs(1, "Developer").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectCommit()
+
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		result, err := tx.Exec(s.ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
+		if err != nil {
+			return err
+		}
+
+		userID, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(s.ctx, "INSERT INTO profiles (user_id, role) VALUES (?, ?)", userID, "Developer")
+		return err
+	})
+
+	s.Require().NoError(err)
+}
+
+func (s *ClientTestSuite) TestWithTx_WithCustomOptions() {
+	s.mock.ExpectBegin()
+	s.mock.ExpectCommit()
+
+	opts := &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+		ReadOnly:  true,
+	}
+
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		return nil
+	}, opts)
+
+	s.Require().NoError(err)
+}
+
+func (s *ClientTestSuite) TestWithTx_UsesTransactionForQueries() {
+	rows := sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "John")
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectQuery("SELECT (.+) FROM users WHERE id = ?").
+		WithArgs(1).
+		WillReturnRows(rows)
+	s.mock.ExpectCommit()
+
+	var user User
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		return tx.Get(s.ctx, &user, "SELECT id, name FROM users WHERE id = ?", 1)
+	})
+
+	s.Require().NoError(err)
+	s.Assert().Equal(1, user.ID)
+	s.Assert().Equal("John", user.Name)
+}
+
+// -----------------------------------------------------------------------------
+// Close Test (standalone - needs separate setup)
+// -----------------------------------------------------------------------------
 
 func TestClientClose(t *testing.T) {
 	logger := logmocks.NewLoggerMock(logmocks.WithTestingT(t), logmocks.WithMockAll)
@@ -375,16 +499,32 @@ func TestClientClose(t *testing.T) {
 	require.NoError(t, err)
 
 	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
-	executor := newMockExecutor()
 	qbConfig := sqlc.DefaultConfig()
 
-	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
+	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, exec.NewDefaultExecutor(), qbConfig)
 
 	mock.ExpectClose()
 
 	err = client.Close()
 	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// -----------------------------------------------------------------------------
+// Executor Tests (standalone - needs custom executor setup)
+// -----------------------------------------------------------------------------
+
+// mockExecutor is used to test executor behavior
+type mockExecutor struct {
+	executeFunc func(ctx context.Context, f exec.Executable) (any, error)
+}
+
+func (m *mockExecutor) Execute(ctx context.Context, f exec.Executable, _ ...exec.Notify) (any, error) {
+	if m.executeFunc != nil {
+		return m.executeFunc(ctx, f)
+	}
+
+	return f(ctx)
 }
 
 func TestClientWithExecutorRetry(t *testing.T) {
@@ -408,19 +548,11 @@ func TestClientWithExecutorRetry(t *testing.T) {
 
 		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
 
-		// Note: We're not using mock expectations here since this test is focused on executor behavior
-		// The actual DB call will fail, but that's okay - we're testing the executor wrapping
-
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
 		var user User
-		// This will actually fail because we're not setting up mock expectations,
-		// but the executor will still be called - we're just checking it was invoked
+		// This will fail because no mock expectations are set,
+		// but the executor will still be called
 		err := client.Get(context.Background(), &user, "SELECT id, name FROM users WHERE id = ?", 1)
-		assert.Error(t, err) // We expect an error since no mock expectations are set
+		assert.Error(t, err)
 
 		assert.True(t, executorCalled, "executor should have been called")
 	})
@@ -435,37 +567,9 @@ func TestClientWithExecutorRetry(t *testing.T) {
 
 		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
 
-		type User struct {
-			ID   int    `db:"id"`
-			Name string `db:"name"`
-		}
-
 		var user User
 		err := client.Get(context.Background(), &user, "SELECT id, name FROM users WHERE id = ?", 1)
 
 		assert.ErrorIs(t, err, retryErr)
-	})
-}
-
-func TestClientIntegrationWithQueryBuilder(t *testing.T) {
-	client, mock, _ := setupClient(t)
-	ctx := context.Background()
-
-	t.Run("query builder with client", func(t *testing.T) {
-		mock.ExpectExec("INSERT INTO `users`").
-			WithArgs("John", "john@example.com").
-			WillReturnResult(sqlmock.NewResult(1, 1))
-
-		result, err := client.Q().
-			Into("users").
-			Columns("name", "email").
-			Values("John", "john@example.com").
-			WithClient(client).
-			Exec(ctx)
-
-		require.NoError(t, err)
-		lastID, err := result.LastInsertId()
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), lastID)
 	})
 }

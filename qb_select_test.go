@@ -594,11 +594,7 @@ func TestErrorPersistsAcrossCalls(t *testing.T) {
 }
 
 // Test structs for ForType tests
-type User struct {
-	ID    int    `db:"id"`
-	Name  string `db:"name"`
-	Email string `db:"email"`
-}
+// User struct is defined in client_test.go
 
 type Product struct {
 	ProductID   int     `db:"product_id"`
