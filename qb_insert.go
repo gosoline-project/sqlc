@@ -803,6 +803,31 @@ func (q *InsertQueryBuilder) Exec(ctx context.Context) (Result, error) {
 	return q.client.Exec(ctx, sql, args...)
 }
 
+// Prepare creates a prepared INSERT statement from the current query builder state.
+// The SQL template is fixed at preparation time using ToSql(). The placeholder values
+// used in builder methods are discarded - only the SQL template matters.
+// The caller must supply all bind arguments when executing the prepared statement.
+//
+// The caller is responsible for closing the prepared statement when it is no
+// longer needed by calling Close() on the returned PreparedExec.
+//
+// Example:
+//
+//	prepared, err := Into("users").
+//		WithClient(client).
+//		Columns("id", "name", "email").
+//		Values(0, "", "").
+//		Prepare(ctx)
+//	if err != nil {
+//		return err
+//	}
+//	defer prepared.Close()
+//
+//	result, err := prepared.Exec(ctx, 1, "John", "john@example.com")
+func (q *InsertQueryBuilder) Prepare(ctx context.Context) (*PreparedExec, error) {
+	return prepareExec(ctx, q.client, q)
+}
+
 // extractValuesFromStruct extracts field values from a struct in the order specified by tags.
 // It handles both struct values and pointers to structs.
 // Uses mapx.Struct.Read() for simplified struct field extraction.

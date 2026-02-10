@@ -297,6 +297,31 @@ func (q *InsertQueryBuilderG[T]) ToNamedSql() (query string, params []any, err e
 	return q.qb.ToNamedSql()
 }
 
+// Prepare creates a prepared INSERT statement from the current generic query builder state.
+// The SQL template is fixed at preparation time using ToSql(). The placeholder values
+// used in builder methods are discarded - only the SQL template matters.
+// The caller must supply all bind arguments when executing the prepared statement.
+//
+// The caller is responsible for closing the prepared statement when it is no
+// longer needed by calling Close() on the returned PreparedExec.
+//
+// Example:
+//
+//	prepared, err := IntoG[User]("users").
+//		WithClient(client).
+//		Columns("id", "name", "email").
+//		Values(0, "", "").
+//		Prepare(ctx)
+//	if err != nil {
+//		return err
+//	}
+//	defer prepared.Close()
+//
+//	result, err := prepared.Exec(ctx, 1, "John", "john@example.com")
+func (q *InsertQueryBuilderG[T]) Prepare(ctx context.Context) (*PreparedExec, error) {
+	return prepareExec(ctx, q.qb.client, q.qb)
+}
+
 // Exec executes the insert query using the attached client.
 // Returns the result (with LastInsertId and RowsAffected) and any error.
 // Requires that a client has been set via WithClient().

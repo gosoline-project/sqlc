@@ -450,6 +450,37 @@ func (q *SelectQueryBuilderG[T]) ToSql() (query string, params []any, err error)
 	return q.qb.ToSql()
 }
 
+// Prepare creates a prepared SELECT statement from the current generic query builder state.
+// The SQL template is fixed at preparation time. The placeholder values used in
+// builder methods like Where() are discarded - only the SQL template matters.
+// The caller must supply all bind arguments when executing the prepared statement.
+//
+// Returns a PreparedSelectG[T] that provides type-safe Get and Select methods.
+// The caller is responsible for closing the prepared statement when it is no
+// longer needed by calling Close() on the returned PreparedSelectG.
+//
+// Example:
+//
+//	prepared, err := FromG[User]("users").
+//		WithClient(client).
+//		Where("status = ?", "active").
+//		Prepare(ctx)
+//	if err != nil {
+//		return err
+//	}
+//	defer prepared.Close()
+//
+//	user, err := prepared.Get(ctx, "active")
+//	users, err := prepared.Select(ctx, "active")
+func (q *SelectQueryBuilderG[T]) Prepare(ctx context.Context) (*PreparedSelectG[T], error) {
+	ps, err := prepareSelect(ctx, q.qb.client, q.qb)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PreparedSelectG[T]{ps: ps}, nil
+}
+
 // Get executes the query and returns exactly one result.
 // Returns the entity and an error if the client is not set, if no rows are found,
 // or if more than one row is returned.

@@ -275,6 +275,30 @@ func (q *DeleteQueryBuilder) buildDeleteSql() (query string, params []any, err e
 	return sql.String(), params, nil
 }
 
+// Prepare creates a prepared DELETE statement from the current query builder state.
+// The SQL template is fixed at preparation time using ToSql(). The placeholder values
+// used in builder methods are discarded - only the SQL template matters.
+// The caller must supply all bind arguments when executing the prepared statement.
+//
+// The caller is responsible for closing the prepared statement when it is no
+// longer needed by calling Close() on the returned PreparedExec.
+//
+// Example:
+//
+//	prepared, err := Delete("users").
+//		WithClient(client).
+//		Where("status = ?", "inactive").
+//		Prepare(ctx)
+//	if err != nil {
+//		return err
+//	}
+//	defer prepared.Close()
+//
+//	result, err := prepared.Exec(ctx, "inactive")
+func (q *DeleteQueryBuilder) Prepare(ctx context.Context) (*PreparedExec, error) {
+	return prepareExec(ctx, q.client, q)
+}
+
 // Exec executes the delete query using the attached client.
 // Returns the result (with RowsAffected) and any error.
 // Requires that a client has been set via WithClient().

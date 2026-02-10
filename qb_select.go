@@ -1004,6 +1004,32 @@ func (q *SelectQueryBuilder) Get(ctx context.Context, dest any) error {
 	return qb.client.Get(ctx, dest, sql, args...)
 }
 
+// Prepare creates a prepared SELECT statement from the current query builder state.
+// The SQL template is fixed at preparation time. The placeholder values used in
+// builder methods like Where() are discarded - only the SQL template matters.
+// The caller must supply all bind arguments when executing the prepared statement.
+//
+// The caller is responsible for closing the prepared statement when it is no
+// longer needed by calling Close() on the returned PreparedSelect.
+//
+// Example:
+//
+//	prepared, err := From("users").
+//		WithClient(client).
+//		Columns("id", "name").
+//		Where("status = ?", "active").
+//		Prepare(ctx)
+//	if err != nil {
+//		return err
+//	}
+//	defer prepared.Close()
+//
+//	var activeUsers []User
+//	err = prepared.Select(ctx, &activeUsers, "active")
+func (q *SelectQueryBuilder) Prepare(ctx context.Context) (*PreparedSelect, error) {
+	return prepareSelect(ctx, q.client, q)
+}
+
 // validatePointer checks if the provided value is a pointer.
 // If requireStructOrSlice is true, it also checks that the pointer
 // points to a struct or slice. Returns a descriptive error if the

@@ -452,6 +452,31 @@ func (q *UpdateQueryBuilder) buildUpdateSql(assignments []Assignment) (query str
 	return sql.String(), params, nil
 }
 
+// Prepare creates a prepared UPDATE statement from the current query builder state.
+// The SQL template is fixed at preparation time using ToSql(). The placeholder values
+// used in builder methods are discarded - only the SQL template matters.
+// The caller must supply all bind arguments when executing the prepared statement.
+//
+// The caller is responsible for closing the prepared statement when it is no
+// longer needed by calling Close() on the returned PreparedExec.
+//
+// Example:
+//
+//	prepared, err := Update("users").
+//		WithClient(client).
+//		Set("last_seen", nil).
+//		Where("id = ?", 0).
+//		Prepare(ctx)
+//	if err != nil {
+//		return err
+//	}
+//	defer prepared.Close()
+//
+//	result, err := prepared.Exec(ctx, time.Now(), userID)
+func (q *UpdateQueryBuilder) Prepare(ctx context.Context) (*PreparedExec, error) {
+	return prepareExec(ctx, q.client, q)
+}
+
 // Exec executes the update query using the attached client.
 // Values from structs (SetRecord) and maps (SetMap) are extracted and used
 // with positional parameters.
