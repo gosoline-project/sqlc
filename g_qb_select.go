@@ -114,6 +114,236 @@ func (q *SelectQueryBuilderG[T]) Distinct() *SelectQueryBuilderG[T] {
 	}
 }
 
+// JoinBuilderG is an intermediate builder for constructing JOIN clauses fluently
+// within a generic SelectQueryBuilderG. It wraps the non-generic JoinBuilder
+// and returns a SelectQueryBuilderG[T] from the On() method.
+type JoinBuilderG[T any] struct {
+	jb *JoinBuilder
+}
+
+// As sets a table alias for the joined table.
+// Returns the same JoinBuilderG for method chaining.
+//
+// Example:
+//
+//	FromG[User]("users").As("u").
+//		LeftJoin("orders").As("o").On("u.id = o.user_id")
+func (j *JoinBuilderG[T]) As(alias string) *JoinBuilderG[T] {
+	j.jb.As(alias)
+
+	return j
+}
+
+// On finalizes the JOIN clause with the specified ON condition.
+// Accepts either:
+//   - A raw SQL string with optional placeholders and corresponding parameter values
+//   - An *Expression object that encapsulates the condition and parameters
+//
+// Returns a new SelectQueryBuilderG with the JOIN clause added.
+//
+// Example:
+//
+//	FromG[User]("users").As("u").
+//		LeftJoin("orders").As("o").On("u.id = o.user_id")
+//	FromG[User]("users").As("u").
+//		InnerJoin("orders").As("o").On(Col("u.id").Eq(Col("o.user_id")))
+func (j *JoinBuilderG[T]) On(condition any, params ...any) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: j.jb.On(condition, params...),
+	}
+}
+
+// Join starts building an INNER JOIN clause for the specified table.
+// Returns a JoinBuilderG that must be finalized with On() to set the join condition.
+//
+// Example:
+//
+//	FromG[User]("users").As("u").
+//		Join("orders").As("o").On("u.id = o.user_id")
+func (q *SelectQueryBuilderG[T]) Join(table string) *JoinBuilderG[T] {
+	return &JoinBuilderG[T]{
+		jb: q.qb.Join(table),
+	}
+}
+
+// InnerJoin starts building an INNER JOIN clause for the specified table.
+// This is an alias for Join(). Returns a JoinBuilderG that must be finalized with On().
+//
+// Example:
+//
+//	FromG[User]("users").As("u").
+//		InnerJoin("orders").As("o").On("u.id = o.user_id")
+func (q *SelectQueryBuilderG[T]) InnerJoin(table string) *JoinBuilderG[T] {
+	return &JoinBuilderG[T]{
+		jb: q.qb.InnerJoin(table),
+	}
+}
+
+// LeftJoin starts building a LEFT JOIN clause for the specified table.
+// Returns a JoinBuilderG that must be finalized with On() to set the join condition.
+//
+// Example:
+//
+//	FromG[User]("users").As("u").
+//		LeftJoin("profiles").As("p").On("u.id = p.user_id")
+func (q *SelectQueryBuilderG[T]) LeftJoin(table string) *JoinBuilderG[T] {
+	return &JoinBuilderG[T]{
+		jb: q.qb.LeftJoin(table),
+	}
+}
+
+// RightJoin starts building a RIGHT JOIN clause for the specified table.
+// Returns a JoinBuilderG that must be finalized with On() to set the join condition.
+//
+// Example:
+//
+//	FromG[User]("users").As("u").
+//		RightJoin("orders").As("o").On("u.id = o.user_id")
+func (q *SelectQueryBuilderG[T]) RightJoin(table string) *JoinBuilderG[T] {
+	return &JoinBuilderG[T]{
+		jb: q.qb.RightJoin(table),
+	}
+}
+
+// CrossJoin adds a CROSS JOIN clause for the specified table.
+// CROSS JOIN produces a cartesian product and does not require an ON condition.
+// Returns a new SelectQueryBuilderG with the CROSS JOIN added.
+//
+// Example:
+//
+//	FromG[Combination]("colors").CrossJoin("sizes")
+func (q *SelectQueryBuilderG[T]) CrossJoin(table string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.CrossJoin(table),
+	}
+}
+
+// CrossJoinAs adds a CROSS JOIN clause with a table alias.
+// CROSS JOIN produces a cartesian product and does not require an ON condition.
+// Returns a new SelectQueryBuilderG with the CROSS JOIN added.
+//
+// Example:
+//
+//	FromG[Combination]("colors").CrossJoinAs("sizes", "s")
+func (q *SelectQueryBuilderG[T]) CrossJoinAs(table string, alias string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.CrossJoinAs(table, alias),
+	}
+}
+
+// FullOuterJoin starts building a FULL OUTER JOIN clause for the specified table.
+// Returns a JoinBuilderG that must be finalized with On() to set the join condition.
+//
+// Example:
+//
+//	FromG[Employee]("employees").As("e").
+//		FullOuterJoin("departments").As("d").On("e.dept_id = d.id")
+func (q *SelectQueryBuilderG[T]) FullOuterJoin(table string) *JoinBuilderG[T] {
+	return &JoinBuilderG[T]{
+		jb: q.qb.FullOuterJoin(table),
+	}
+}
+
+// NaturalJoin adds a NATURAL JOIN clause for the specified table.
+// NATURAL JOIN automatically matches on columns with the same name and does not
+// require an ON condition. Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Order]("orders").NaturalJoin("customers")
+func (q *SelectQueryBuilderG[T]) NaturalJoin(table string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalJoin(table),
+	}
+}
+
+// NaturalJoinAs adds a NATURAL JOIN clause with a table alias.
+// Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Order]("orders").NaturalJoinAs("customers", "c")
+func (q *SelectQueryBuilderG[T]) NaturalJoinAs(table string, alias string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalJoinAs(table, alias),
+	}
+}
+
+// NaturalLeftJoin adds a NATURAL LEFT JOIN clause for the specified table.
+// Combines NATURAL JOIN semantics with LEFT JOIN behavior.
+// Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Order]("orders").NaturalLeftJoin("customers")
+func (q *SelectQueryBuilderG[T]) NaturalLeftJoin(table string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalLeftJoin(table),
+	}
+}
+
+// NaturalLeftJoinAs adds a NATURAL LEFT JOIN clause with a table alias.
+// Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Order]("orders").NaturalLeftJoinAs("customers", "c")
+func (q *SelectQueryBuilderG[T]) NaturalLeftJoinAs(table string, alias string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalLeftJoinAs(table, alias),
+	}
+}
+
+// NaturalRightJoin adds a NATURAL RIGHT JOIN clause for the specified table.
+// Combines NATURAL JOIN semantics with RIGHT JOIN behavior.
+// Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Order]("orders").NaturalRightJoin("customers")
+func (q *SelectQueryBuilderG[T]) NaturalRightJoin(table string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalRightJoin(table),
+	}
+}
+
+// NaturalRightJoinAs adds a NATURAL RIGHT JOIN clause with a table alias.
+// Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Order]("orders").NaturalRightJoinAs("customers", "c")
+func (q *SelectQueryBuilderG[T]) NaturalRightJoinAs(table string, alias string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalRightJoinAs(table, alias),
+	}
+}
+
+// NaturalFullJoin adds a NATURAL FULL OUTER JOIN clause for the specified table.
+// Combines NATURAL JOIN semantics with FULL OUTER JOIN behavior.
+// Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Employee]("employees").NaturalFullJoin("departments")
+func (q *SelectQueryBuilderG[T]) NaturalFullJoin(table string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalFullJoin(table),
+	}
+}
+
+// NaturalFullJoinAs adds a NATURAL FULL OUTER JOIN clause with a table alias.
+// Returns a new SelectQueryBuilderG with the join added.
+//
+// Example:
+//
+//	FromG[Employee]("employees").NaturalFullJoinAs("departments", "d")
+func (q *SelectQueryBuilderG[T]) NaturalFullJoinAs(table string, alias string) *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.NaturalFullJoinAs(table, alias),
+	}
+}
+
 // Where adds a WHERE condition to the query.
 // Multiple Where() calls are combined with AND.
 // Accepts either:

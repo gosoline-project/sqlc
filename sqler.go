@@ -388,6 +388,186 @@ func (s *SqlerHaving) toSqlWithStartIndex(startIndex int) (query string, params 
 	return sql, s.params, nil
 }
 
+// JoinType represents the type of SQL JOIN operation.
+type JoinType string
+
+const (
+	// JoinInner represents an INNER JOIN (or simply JOIN).
+	JoinInner JoinType = "JOIN"
+	// JoinLeft represents a LEFT JOIN.
+	JoinLeft JoinType = "LEFT JOIN"
+	// JoinRight represents a RIGHT JOIN.
+	JoinRight JoinType = "RIGHT JOIN"
+	// JoinCross represents a CROSS JOIN (cartesian product, no ON condition).
+	JoinCross JoinType = "CROSS JOIN"
+	// JoinFullOuter represents a FULL OUTER JOIN.
+	JoinFullOuter JoinType = "FULL OUTER JOIN"
+	// JoinNatural represents a NATURAL JOIN (automatically matches on same-named columns, no ON condition).
+	JoinNatural JoinType = "NATURAL JOIN"
+	// JoinNaturalLeft represents a NATURAL LEFT JOIN (no ON condition).
+	JoinNaturalLeft JoinType = "NATURAL LEFT JOIN"
+	// JoinNaturalRight represents a NATURAL RIGHT JOIN (no ON condition).
+	JoinNaturalRight JoinType = "NATURAL RIGHT JOIN"
+	// JoinNaturalFull represents a NATURAL FULL OUTER JOIN (no ON condition).
+	JoinNaturalFull JoinType = "NATURAL FULL OUTER JOIN"
+)
+
+// JoinClause represents a single JOIN clause in a SQL query.
+// It stores the join type, table name, optional alias, and the ON condition.
+type JoinClause struct {
+	joinType  JoinType
+	table     string
+	alias     string
+	condition string      // raw ON condition string
+	condExpr  *Expression // expression-based ON condition
+	params    []any       // parameters for raw string ON conditions
+	config    *QueryBuilderConfig
+}
+
+// NewJoinClause creates a new JoinClause with the specified join type, table, alias, and raw ON condition.
+// For CROSS JOINs, pass an empty string for condition.
+// For Expression-based conditions, use the JoinBuilder fluent API instead.
+func NewJoinClause(joinType JoinType, table string, alias string, condition string, params ...any) JoinClause {
+	return JoinClause{
+		joinType:  joinType,
+		table:     table,
+		alias:     alias,
+		condition: condition,
+		params:    params,
+	}
+}
+
+// isNatural returns true if this join type is a NATURAL JOIN variant.
+// NATURAL JOINs do not take an ON condition.
+func (j *JoinClause) isNatural() bool {
+	return j.joinType == JoinNatural ||
+		j.joinType == JoinNaturalLeft ||
+		j.joinType == JoinNaturalRight ||
+		j.joinType == JoinNaturalFull
+}
+
+// toSqlWithStartIndex generates the SQL fragment for this JOIN clause with a custom starting parameter index.
+// Returns the SQL string, parameters, and any error encountered.
+func (j *JoinClause) toSqlWithStartIndex(startIndex int) (query string, params []any, err error) {
+	quote := identifierQuote
+	if j.config != nil {
+		quote = j.config.IdentifierQuote
+	}
+
+	var sqlBuilder strings.Builder
+
+	sqlBuilder.WriteString(string(j.joinType))
+	sqlBuilder.WriteString(" ")
+	sqlBuilder.WriteString(quoteIdentifier(j.table, quote))
+
+	if j.alias != "" {
+		sqlBuilder.WriteString(" AS ")
+		sqlBuilder.WriteString(j.alias)
+	}
+
+	// CROSS JOIN and NATURAL JOINs do not have an ON condition
+	if j.joinType == JoinCross || j.isNatural() {
+		return sqlBuilder.String(), nil, nil
+	}
+
+	// All other JOINs require an ON condition
+	if j.condition == "" && j.condExpr == nil {
+		return "", nil, fmt.Errorf("JOIN on table %q requires an ON condition", j.table)
+	}
+
+	sqlBuilder.WriteString(" ON ")
+
+	if j.condExpr != nil {
+		// Expression-based ON condition
+		sqlBuilder.WriteString(j.condExpr.toConditionSQL(quote))
+		params = j.condExpr.collectParameters()
+	} else {
+		// Raw string ON condition — auto-quote identifiers
+		sql := quoteConditionIdentifiers(j.condition, quote)
+		params = j.params
+
+		// Replace placeholders if not using default "?"
+		if j.config != nil && j.config.Placeholder != "?" {
+			paramIndex := startIndex
+			for i := 0; i < len(params); i++ {
+				placeholder := j.config.PlaceholderFormat(paramIndex)
+				sql = strings.Replace(sql, "?", placeholder, 1)
+				paramIndex++
+			}
+		}
+
+		sqlBuilder.WriteString(sql)
+	}
+
+	return sqlBuilder.String(), params, nil
+}
+
+// SqlerJoin handles JOIN clause construction for SQL queries.
+// It stores a list of join clauses that are rendered in order between
+// the FROM clause and the WHERE clause.
+type SqlerJoin struct {
+	clauses []JoinClause
+	config  *QueryBuilderConfig
+	err     error
+}
+
+// NewSqlerJoin creates a new SqlerJoin instance.
+func NewSqlerJoin() *SqlerJoin {
+	return &SqlerJoin{
+		clauses: []JoinClause{},
+		config:  DefaultConfig(),
+	}
+}
+
+// IsEmpty returns true if no JOIN clauses have been added.
+func (s *SqlerJoin) IsEmpty() bool {
+	return len(s.clauses) == 0
+}
+
+// WithConfig sets the config for identifier quoting and placeholder formatting.
+// Returns the same SqlerJoin instance for method chaining.
+func (s *SqlerJoin) WithConfig(config *QueryBuilderConfig) *SqlerJoin {
+	s.config = config
+
+	return s
+}
+
+// AddJoin appends a JoinClause to the list of joins.
+func (s *SqlerJoin) AddJoin(clause JoinClause) {
+	clause.config = s.config
+	s.clauses = append(s.clauses, clause)
+}
+
+// toSqlWithStartIndex generates the complete JOIN SQL fragment with a custom starting parameter index.
+// Returns the SQL string (all JOINs separated by spaces), parameters, and any error encountered.
+func (s *SqlerJoin) toSqlWithStartIndex(startIndex int) (query string, params []any, err error) {
+	if s.err != nil {
+		return "", nil, s.err
+	}
+
+	if len(s.clauses) == 0 {
+		return "", nil, nil
+	}
+
+	var parts []string
+	paramIndex := startIndex
+
+	for i := range s.clauses {
+		var sql string
+		var joinParams []any
+
+		if sql, joinParams, err = s.clauses[i].toSqlWithStartIndex(paramIndex); err != nil {
+			return "", nil, fmt.Errorf("could not build JOIN clause %d: %w", i, err)
+		}
+
+		parts = append(parts, sql)
+		params = append(params, joinParams...)
+		paramIndex += len(joinParams)
+	}
+
+	return strings.Join(parts, " "), params, nil
+}
+
 // SqlerOrderBy handles ORDER BY clause construction for SQL queries.
 // It extracts the order by logic to be reusable across different query builders.
 type SqlerOrderBy struct {

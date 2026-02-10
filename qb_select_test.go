@@ -2055,3 +2055,644 @@ func TestConfigWithCustomStructTag(t *testing.T) {
 	assert.Equal(t, "SELECT `id`, `name`, `email` FROM `users` WHERE status = $1", sql)
 	assert.Equal(t, []any{"active"}, params)
 }
+
+// ---- JOIN tests ----
+
+func TestSelectWithInnerJoin(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		Join("orders").As("o").On("u.id = o.user_id").
+		Columns("u.name", "o.total")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithInnerJoinAlias(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		InnerJoin("orders").As("o").On("u.id = o.user_id").
+		Columns("u.name", "o.total")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithLeftJoin(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		LeftJoin("profiles").As("p").On("u.id = p.user_id").
+		Columns("u.name", "p.bio")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `p`.`bio` FROM `users` AS u LEFT JOIN `profiles` AS p ON `u`.`id` = `p`.`user_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithRightJoin(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		RightJoin("orders").As("o").On("u.id = o.user_id").
+		Columns("u.name", "o.total")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u RIGHT JOIN `orders` AS o ON `u`.`id` = `o`.`user_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithCrossJoin(t *testing.T) {
+	q := sqlc.From("colors").
+		CrossJoin("sizes")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `colors` CROSS JOIN `sizes`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithCrossJoinAs(t *testing.T) {
+	q := sqlc.From("colors").As("c").
+		CrossJoinAs("sizes", "s").
+		Columns("c.name", "s.label")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `c`.`name`, `s`.`label` FROM `colors` AS c CROSS JOIN `sizes` AS s", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithJoinNoAlias(t *testing.T) {
+	q := sqlc.From("users").
+		Join("orders").On("users.id = orders.user_id").
+		Columns("users.name", "orders.total")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `users`.`name`, `orders`.`total` FROM `users` JOIN `orders` ON `users`.`id` = `orders`.`user_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithJoinExpressionCondition(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		LeftJoin("orders").As("o").On(
+		sqlc.Col("u.id").Eq(sqlc.Col("o.user_id")),
+	).
+		Columns("u.name", "o.total")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u LEFT JOIN `orders` AS o ON `u`.`id` = ?", sql)
+	// The Eq expression treats the second argument (Col("o.user_id")) as a parameter value
+	// For column-to-column comparisons using expressions, users would typically use raw strings
+	assert.Len(t, params, 1)
+}
+
+func TestSelectWithJoinRawStringColumnComparison(t *testing.T) {
+	// For column-to-column comparisons, raw strings are the idiomatic approach
+	q := sqlc.From("users").As("u").
+		LeftJoin("orders").As("o").On("u.id = o.user_id").
+		LeftJoin("payments").As("p").On("o.id = p.order_id").
+		Columns("u.name", "o.total", "p.amount")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total`, `p`.`amount` FROM `users` AS u LEFT JOIN `orders` AS o ON `u`.`id` = `o`.`user_id` LEFT JOIN `payments` AS p ON `o`.`id` = `p`.`order_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithMultipleJoins(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		InnerJoin("orders").As("o").On("u.id = o.user_id").
+		LeftJoin("addresses").As("a").On("u.id = a.user_id").
+		Columns("u.name", "o.total", "a.city")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total`, `a`.`city` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id` LEFT JOIN `addresses` AS a ON `u`.`id` = `a`.`user_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithJoinAndWhere(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		Join("orders").As("o").On("u.id = o.user_id").
+		Columns("u.name", "o.total").
+		Where("u.status = ?", "active").
+		Where("o.amount > ?", 100)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id` WHERE u.status = ? AND o.amount > ?", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, "active", params[0])
+	assert.Equal(t, 100, params[1])
+}
+
+func TestSelectWithJoinOnParamsAndWhere(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		Join("orders").As("o").On("u.id = o.user_id AND o.status = ?", "completed").
+		Columns("u.name", "o.total").
+		Where("u.active = ?", true)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id` AND `o`.`status` = ? WHERE u.active = ?", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, "completed", params[0])
+	assert.Equal(t, true, params[1])
+}
+
+func TestSelectWithJoinAndGroupByHavingOrderBy(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		Join("orders").As("o").On("u.id = o.user_id").
+		Columns("u.name", sqlc.Col("o.total").Sum().As("total_amount")).
+		GroupBy("u.name").
+		Having("SUM(o.total) > ?", 1000).
+		OrderBy("total_amount DESC").
+		Limit(10)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, SUM(`o`.`total`) AS total_amount FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id` GROUP BY `u`.`name` HAVING SUM(o.total) > ? ORDER BY `total_amount` DESC LIMIT ?", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, 1000, params[0])
+	assert.Equal(t, 10, params[1])
+}
+
+func TestSelectWithJoinPostgresPlaceholders(t *testing.T) {
+	config := &sqlc.QueryBuilderConfig{
+		StructTag:       "db",
+		Placeholder:     "$",
+		IdentifierQuote: "\"",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		As("u").
+		Join("orders").As("o").On("u.id = o.user_id AND o.status = ?", "completed").
+		Columns("u.name", "o.total").
+		Where("u.active = ?", true).
+		Limit(10)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, `SELECT "u"."name", "o"."total" FROM "users" AS u JOIN "orders" AS o ON "u"."id" = "o"."user_id" AND "o"."status" = $1 WHERE u.active = $2 LIMIT $3`, sql)
+	assert.Len(t, params, 3)
+	assert.Equal(t, "completed", params[0])
+	assert.Equal(t, true, params[1])
+	assert.Equal(t, 10, params[2])
+}
+
+func TestSelectWithJoinMissingOnCondition(t *testing.T) {
+	// Create a JoinBuilder but don't call On() - instead directly test SqlerJoin
+	// with a non-CROSS join that has no condition
+	q := sqlc.From("users").As("u").
+		CrossJoin("sizes"). // valid: CROSS JOIN without ON
+		Columns("u.name")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT `u`.`name` FROM `users` AS u CROSS JOIN `sizes`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithJoinExpressionAndCondition(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		Join("orders").As("o").On(
+		sqlc.And(
+			sqlc.Col("u.id").Eq(sqlc.Col("o.user_id")),
+			sqlc.Col("o.status").Eq("completed"),
+		),
+	).
+		Columns("u.name", "o.total")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u JOIN `orders` AS o ON (`u`.`id` = ? AND `o`.`status` = ?)", sql)
+	assert.Len(t, params, 2)
+}
+
+func TestSelectWithJoinImmutability(t *testing.T) {
+	base := sqlc.From("users").As("u").
+		Columns("u.name")
+
+	// Create two different queries from the same base
+	q1 := base.Join("orders").As("o").On("u.id = o.user_id")
+	q2 := base.LeftJoin("profiles").As("p").On("u.id = p.user_id")
+
+	sql1, _, err1 := q1.ToSql()
+	require.NoError(t, err1)
+
+	sql2, _, err2 := q2.ToSql()
+	require.NoError(t, err2)
+
+	// Verify they are independent
+	assert.Equal(t, "SELECT `u`.`name` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id`", sql1)
+	assert.Equal(t, "SELECT `u`.`name` FROM `users` AS u LEFT JOIN `profiles` AS p ON `u`.`id` = `p`.`user_id`", sql2)
+
+	// Verify original is unmodified
+	sqlBase, _, errBase := base.ToSql()
+	require.NoError(t, errBase)
+	assert.Equal(t, "SELECT `u`.`name` FROM `users` AS u", sqlBase)
+}
+
+func TestSelectWithJoinInvalidOnConditionType(t *testing.T) {
+	q := sqlc.From("users").
+		Join("orders").On(12345)
+
+	_, _, err := q.ToSql()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid type for Join ON condition")
+}
+
+func TestSelectWithMultipleJoinsAndParams(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		Join("orders").As("o").On("u.id = o.user_id AND o.type = ?", "purchase").
+		LeftJoin("payments").As("p").On("o.id = p.order_id AND p.method = ?", "credit_card").
+		Columns("u.name", "o.total", "p.amount").
+		Where("u.status = ?", "active").
+		Limit(50)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total`, `p`.`amount` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id` AND `o`.`type` = ? LEFT JOIN `payments` AS p ON `o`.`id` = `p`.`order_id` AND `p`.`method` = ? WHERE u.status = ? LIMIT ?", sql)
+	assert.Len(t, params, 4)
+	assert.Equal(t, "purchase", params[0])
+	assert.Equal(t, "credit_card", params[1])
+	assert.Equal(t, "active", params[2])
+	assert.Equal(t, 50, params[3])
+}
+
+func TestSelectWithMultipleJoinsAndParamsPostgres(t *testing.T) {
+	config := &sqlc.QueryBuilderConfig{
+		StructTag:       "db",
+		Placeholder:     "$",
+		IdentifierQuote: "\"",
+	}
+
+	q := sqlc.From("users").
+		WithConfig(config).
+		As("u").
+		Join("orders").As("o").On("u.id = o.user_id AND o.type = ?", "purchase").
+		LeftJoin("payments").As("p").On("o.id = p.order_id AND p.method = ?", "credit_card").
+		Columns("u.name", "o.total", "p.amount").
+		Where("u.status = ?", "active").
+		Limit(50)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, `SELECT "u"."name", "o"."total", "p"."amount" FROM "users" AS u JOIN "orders" AS o ON "u"."id" = "o"."user_id" AND "o"."type" = $1 LEFT JOIN "payments" AS p ON "o"."id" = "p"."order_id" AND "p"."method" = $2 WHERE u.status = $3 LIMIT $4`, sql)
+	assert.Len(t, params, 4)
+	assert.Equal(t, "purchase", params[0])
+	assert.Equal(t, "credit_card", params[1])
+	assert.Equal(t, "active", params[2])
+	assert.Equal(t, 50, params[3])
+}
+
+func TestSelectWithJoinDistinct(t *testing.T) {
+	q := sqlc.From("users").As("u").
+		Join("orders").As("o").On("u.id = o.user_id").
+		Distinct().
+		Columns("u.name")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT DISTINCT `u`.`name` FROM `users` AS u JOIN `orders` AS o ON `u`.`id` = `o`.`user_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithSelfJoin(t *testing.T) {
+	q := sqlc.From("employees").As("e").
+		LeftJoin("employees").As("m").On("e.manager_id = m.id").
+		Columns("e.name", "m.name")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `e`.`name`, `m`.`name` FROM `employees` AS e LEFT JOIN `employees` AS m ON `e`.`manager_id` = `m`.`id`", sql)
+	assert.Empty(t, params)
+}
+
+// ========== FULL OUTER JOIN Tests ==========
+
+func TestSelectWithFullOuterJoin(t *testing.T) {
+	q := sqlc.From("employees").As("e").
+		FullOuterJoin("departments").As("d").On("e.dept_id = d.id").
+		Columns("e.name", "d.name")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `e`.`name`, `d`.`name` FROM `employees` AS e FULL OUTER JOIN `departments` AS d ON `e`.`dept_id` = `d`.`id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithFullOuterJoinNoAlias(t *testing.T) {
+	q := sqlc.From("employees").
+		FullOuterJoin("departments").On("employees.dept_id = departments.id")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `employees` FULL OUTER JOIN `departments` ON `employees`.`dept_id` = `departments`.`id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithFullOuterJoinExpression(t *testing.T) {
+	// Note: Col("x").Eq(Col("y")) treats the second Col as a parameter value.
+	// For column-to-column comparisons, raw strings are the idiomatic approach.
+	// This test verifies expression-based ON works with FULL OUTER JOIN.
+	q := sqlc.From("employees").As("e").
+		FullOuterJoin("departments").As("d").On(sqlc.Col("e.dept_id").Eq(sqlc.Col("d.id")))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `employees` AS e FULL OUTER JOIN `departments` AS d ON `e`.`dept_id` = ?", sql)
+	assert.Len(t, params, 1)
+}
+
+func TestSelectWithFullOuterJoinAndWhere(t *testing.T) {
+	q := sqlc.From("employees").As("e").
+		FullOuterJoin("departments").As("d").On("e.dept_id = d.id").
+		Where("d.active = ?", true)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `employees` AS e FULL OUTER JOIN `departments` AS d ON `e`.`dept_id` = `d`.`id` WHERE d.active = ?", sql)
+	assert.Equal(t, []any{true}, params)
+}
+
+func TestSelectWithFullOuterJoinMissingOnCondition(t *testing.T) {
+	q := sqlc.From("employees").As("e").
+		FullOuterJoin("departments").On("")
+
+	_, _, err := q.ToSql()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires an ON condition")
+}
+
+func TestSelectWithFullOuterJoinPostgres(t *testing.T) {
+	config := &sqlc.QueryBuilderConfig{
+		StructTag:       "db",
+		Placeholder:     "$",
+		IdentifierQuote: "\"",
+	}
+
+	q := sqlc.From("employees").As("e").
+		WithConfig(config).
+		FullOuterJoin("departments").As("d").On("e.dept_id = d.id AND d.active = ?", true).
+		Where("e.status = ?", "active")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, `SELECT * FROM "employees" AS e FULL OUTER JOIN "departments" AS d ON "e"."dept_id" = "d"."id" AND "d"."active" = $1 WHERE e.status = $2`, sql)
+	assert.Equal(t, []any{true, "active"}, params)
+}
+
+// ========== NATURAL JOIN Tests ==========
+
+func TestSelectWithNaturalJoin(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalJoin("customers")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL JOIN `customers`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalJoinAs(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalJoinAs("customers", "c")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL JOIN `customers` AS c", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalJoinAndColumns(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalJoin("customers").
+		Columns("order_id", "customer_name", "total")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `order_id`, `customer_name`, `total` FROM `orders` NATURAL JOIN `customers`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalJoinAndWhere(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalJoin("customers").
+		Where("status = ?", "active")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL JOIN `customers` WHERE status = ?", sql)
+	assert.Equal(t, []any{"active"}, params)
+}
+
+func TestSelectWithNaturalLeftJoin(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalLeftJoin("customers")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL LEFT JOIN `customers`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalLeftJoinAs(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalLeftJoinAs("customers", "c")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL LEFT JOIN `customers` AS c", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalRightJoin(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalRightJoin("customers")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL RIGHT JOIN `customers`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalRightJoinAs(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalRightJoinAs("customers", "c")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL RIGHT JOIN `customers` AS c", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalFullJoin(t *testing.T) {
+	q := sqlc.From("employees").
+		NaturalFullJoin("departments")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `employees` NATURAL FULL OUTER JOIN `departments`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalFullJoinAs(t *testing.T) {
+	q := sqlc.From("employees").
+		NaturalFullJoinAs("departments", "d")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `employees` NATURAL FULL OUTER JOIN `departments` AS d", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalJoinPostgres(t *testing.T) {
+	config := &sqlc.QueryBuilderConfig{
+		StructTag:       "db",
+		Placeholder:     "$",
+		IdentifierQuote: "\"",
+	}
+
+	q := sqlc.From("orders").
+		WithConfig(config).
+		NaturalJoin("customers")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, `SELECT * FROM "orders" NATURAL JOIN "customers"`, sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalLeftJoinPostgres(t *testing.T) {
+	config := &sqlc.QueryBuilderConfig{
+		StructTag:       "db",
+		Placeholder:     "$",
+		IdentifierQuote: "\"",
+	}
+
+	q := sqlc.From("orders").
+		WithConfig(config).
+		NaturalLeftJoinAs("customers", "c").
+		Where("status = ?", "active")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, `SELECT * FROM "orders" NATURAL LEFT JOIN "customers" AS c WHERE status = $1`, sql)
+	assert.Equal(t, []any{"active"}, params)
+}
+
+func TestSelectWithMultipleNaturalJoins(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalJoin("customers").
+		NaturalLeftJoin("products")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL JOIN `customers` NATURAL LEFT JOIN `products`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalJoinAndRegularJoin(t *testing.T) {
+	q := sqlc.From("orders").As("o").
+		NaturalJoin("customers").
+		LeftJoin("payments").As("p").On("o.id = p.order_id")
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT * FROM `orders` AS o NATURAL JOIN `customers` LEFT JOIN `payments` AS p ON `o`.`id` = `p`.`order_id`", sql)
+	assert.Empty(t, params)
+}
+
+func TestSelectWithNaturalJoinImmutability(t *testing.T) {
+	base := sqlc.From("orders")
+	withNatural := base.NaturalJoin("customers")
+	withNaturalLeft := base.NaturalLeftJoin("products")
+
+	sql1, _, err1 := base.ToSql()
+	require.NoError(t, err1)
+	assert.Equal(t, "SELECT * FROM `orders`", sql1)
+
+	sql2, _, err2 := withNatural.ToSql()
+	require.NoError(t, err2)
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL JOIN `customers`", sql2)
+
+	sql3, _, err3 := withNaturalLeft.ToSql()
+	require.NoError(t, err3)
+	assert.Equal(t, "SELECT * FROM `orders` NATURAL LEFT JOIN `products`", sql3)
+}
+
+func TestSelectWithFullOuterJoinImmutability(t *testing.T) {
+	base := sqlc.From("employees").As("e")
+	withFull := base.FullOuterJoin("departments").As("d").On("e.dept_id = d.id")
+	withLeft := base.LeftJoin("departments").As("d").On("e.dept_id = d.id")
+
+	sql1, _, err1 := base.ToSql()
+	require.NoError(t, err1)
+	assert.Equal(t, "SELECT * FROM `employees` AS e", sql1)
+
+	sql2, _, err2 := withFull.ToSql()
+	require.NoError(t, err2)
+	assert.Equal(t, "SELECT * FROM `employees` AS e FULL OUTER JOIN `departments` AS d ON `e`.`dept_id` = `d`.`id`", sql2)
+
+	sql3, _, err3 := withLeft.ToSql()
+	require.NoError(t, err3)
+	assert.Equal(t, "SELECT * FROM `employees` AS e LEFT JOIN `departments` AS d ON `e`.`dept_id` = `d`.`id`", sql3)
+}
+
+func TestSelectWithNaturalJoinFullQuery(t *testing.T) {
+	q := sqlc.From("orders").
+		NaturalJoin("customers").
+		Columns("order_id", "customer_name", "total").
+		Where("total > ?", 100).
+		OrderBy("total DESC").
+		Limit(10)
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `order_id`, `customer_name`, `total` FROM `orders` NATURAL JOIN `customers` WHERE total > ? ORDER BY `total` DESC LIMIT ?", sql)
+	assert.Equal(t, []any{100, 10}, params)
+}

@@ -23,6 +23,14 @@ import (
 //		OrderBy("created_at DESC").
 //		Limit(10)
 //	sql, args, err := query.ToSql()
+//
+// JOIN example:
+//
+//	query := From("users").As("u").
+//		LeftJoin("orders").As("o").On("u.id = o.user_id").
+//		Columns("u.name", "o.total").
+//		Where("u.status = ?", "active")
+//	sql, args, err := query.ToSql()
 type SelectQueryBuilder struct {
 	client          Querier
 	config          *QueryBuilderConfig
@@ -31,6 +39,7 @@ type SelectQueryBuilder struct {
 	projections     []string
 	projectionExprs []*Expression // expressions in projections that may have bind parameters
 	distinct        bool
+	sqlerJoin       *SqlerJoin
 	sqlerWhere      *SqlerWhere
 	sqlerGroupBy    *SqlerGroupBy
 	sqlerHaving     *SqlerHaving
@@ -38,6 +47,77 @@ type SelectQueryBuilder struct {
 	limitValue      *int
 	offsetValue     *int
 	err             error
+}
+
+// JoinBuilder is an intermediate builder for constructing JOIN clauses fluently.
+// It is created by Join(), InnerJoin(), LeftJoin(), or RightJoin() methods on
+// SelectQueryBuilder, and must be finalized with On() to produce a new SelectQueryBuilder.
+//
+// Example:
+//
+//	From("users").As("u").
+//		LeftJoin("orders").As("o").On("u.id = o.user_id")
+type JoinBuilder struct {
+	query    *SelectQueryBuilder
+	joinType JoinType
+	table    string
+	alias    string
+}
+
+// As sets a table alias for the joined table.
+// Returns the same JoinBuilder for method chaining.
+//
+// Example:
+//
+//	LeftJoin("orders").As("o").On("u.id = o.user_id")
+//	// LEFT JOIN `orders` AS o ON u.id = o.user_id
+func (j *JoinBuilder) As(alias string) *JoinBuilder {
+	j.alias = alias
+
+	return j
+}
+
+// On finalizes the JOIN clause with the specified ON condition.
+// Accepts either:
+//   - A raw SQL string with optional placeholders and corresponding parameter values
+//   - An *Expression object that encapsulates the condition and parameters
+//
+// Returns a new SelectQueryBuilder with the JOIN clause added.
+//
+// Example with raw string:
+//
+//	LeftJoin("orders").As("o").On("u.id = o.user_id")
+//	InnerJoin("payments").On("orders.id = payments.order_id AND payments.status = ?", "completed")
+//
+// Example with Expression:
+//
+//	LeftJoin("orders").As("o").On(Col("u.id").Eq(Col("o.user_id")))
+//	InnerJoin("payments").On(And(Col("orders.id").Eq(Col("payments.order_id")), Col("payments.status").Eq("completed")))
+func (j *JoinBuilder) On(condition any, params ...any) *SelectQueryBuilder {
+	newQuery := j.query.copyQuery()
+
+	clause := JoinClause{
+		joinType: j.joinType,
+		table:    j.table,
+		alias:    j.alias,
+		config:   newQuery.config,
+	}
+
+	switch v := condition.(type) {
+	case string:
+		clause.condition = v
+		clause.params = params
+	case *Expression:
+		clause.condExpr = v
+	default:
+		newQuery.err = fmt.Errorf("invalid type for Join ON condition: expected string or *Expression, got %T", condition)
+
+		return newQuery
+	}
+
+	newQuery.sqlerJoin.AddJoin(clause)
+
+	return newQuery
 }
 
 // From creates a new SelectQueryBuilder for the specified table.
@@ -53,6 +133,7 @@ func From(table string) *SelectQueryBuilder {
 		table:        table,
 		config:       cfg,
 		projections:  []string{},
+		sqlerJoin:    NewSqlerJoin().WithConfig(cfg),
 		sqlerWhere:   NewSqlerWhere().WithConfig(cfg),
 		sqlerGroupBy: NewSqlerGroupBy().WithConfig(cfg),
 		sqlerHaving:  NewSqlerHaving().WithConfig(cfg),
@@ -64,6 +145,13 @@ func From(table string) *SelectQueryBuilder {
 // This is used internally to implement the immutable builder pattern.
 // Each builder method creates a copy, modifies it, and returns the new copy.
 func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
+	// Copy the SqlerJoin by creating a new instance with copied slices
+	newSqlerJoin := &SqlerJoin{
+		clauses: append([]JoinClause{}, q.sqlerJoin.clauses...),
+		config:  q.sqlerJoin.config,
+		err:     q.sqlerJoin.err,
+	}
+
 	// Copy the SqlerWhere by creating a new instance with copied slices
 	newSqlerWhere := &SqlerWhere{
 		clauses: append([]string{}, q.sqlerWhere.clauses...),
@@ -102,6 +190,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 		projections:     append([]string{}, q.projections...),
 		projectionExprs: append([]*Expression{}, q.projectionExprs...),
 		distinct:        q.distinct,
+		sqlerJoin:       newSqlerJoin,
 		sqlerWhere:      newSqlerWhere,
 		sqlerGroupBy:    newSqlerGroupBy,
 		sqlerHaving:     newSqlerHaving,
@@ -147,6 +236,7 @@ func (q *SelectQueryBuilder) WithClient(client Querier) *SelectQueryBuilder {
 func (q *SelectQueryBuilder) WithConfig(config *QueryBuilderConfig) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.config = config
+	newQuery.sqlerJoin.WithConfig(config)
 	newQuery.sqlerWhere.WithConfig(config)
 	newQuery.sqlerHaving.WithConfig(config)
 	newQuery.sqlerGroupBy.WithConfig(config)
@@ -165,6 +255,281 @@ func (q *SelectQueryBuilder) WithConfig(config *QueryBuilderConfig) *SelectQuery
 func (q *SelectQueryBuilder) As(alias string) *SelectQueryBuilder {
 	newQuery := q.copyQuery()
 	newQuery.tableAlias = alias
+
+	return newQuery
+}
+
+// Join starts building an INNER JOIN clause for the specified table.
+// Returns a JoinBuilder that must be finalized with On() to set the join condition.
+// The JoinBuilder also supports As() for setting a table alias.
+//
+// Example:
+//
+//	From("users").As("u").
+//		Join("orders").As("o").On("u.id = o.user_id")
+//	// SELECT * FROM `users` AS u JOIN `orders` AS o ON u.id = o.user_id
+func (q *SelectQueryBuilder) Join(table string) *JoinBuilder {
+	return &JoinBuilder{
+		query:    q,
+		joinType: JoinInner,
+		table:    table,
+	}
+}
+
+// InnerJoin starts building an INNER JOIN clause for the specified table.
+// This is an alias for Join(). Returns a JoinBuilder that must be finalized with On().
+//
+// Example:
+//
+//	From("users").As("u").
+//		InnerJoin("orders").As("o").On("u.id = o.user_id")
+//	// SELECT * FROM `users` AS u JOIN `orders` AS o ON u.id = o.user_id
+func (q *SelectQueryBuilder) InnerJoin(table string) *JoinBuilder {
+	return &JoinBuilder{
+		query:    q,
+		joinType: JoinInner,
+		table:    table,
+	}
+}
+
+// LeftJoin starts building a LEFT JOIN clause for the specified table.
+// Returns a JoinBuilder that must be finalized with On() to set the join condition.
+//
+// Example:
+//
+//	From("users").As("u").
+//		LeftJoin("profiles").As("p").On("u.id = p.user_id")
+//	// SELECT * FROM `users` AS u LEFT JOIN `profiles` AS p ON u.id = p.user_id
+func (q *SelectQueryBuilder) LeftJoin(table string) *JoinBuilder {
+	return &JoinBuilder{
+		query:    q,
+		joinType: JoinLeft,
+		table:    table,
+	}
+}
+
+// RightJoin starts building a RIGHT JOIN clause for the specified table.
+// Returns a JoinBuilder that must be finalized with On() to set the join condition.
+//
+// Example:
+//
+//	From("users").As("u").
+//		RightJoin("orders").As("o").On("u.id = o.user_id")
+//	// SELECT * FROM `users` AS u RIGHT JOIN `orders` AS o ON u.id = o.user_id
+func (q *SelectQueryBuilder) RightJoin(table string) *JoinBuilder {
+	return &JoinBuilder{
+		query:    q,
+		joinType: JoinRight,
+		table:    table,
+	}
+}
+
+// CrossJoin adds a CROSS JOIN clause for the specified table.
+// CROSS JOIN produces a cartesian product and does not require an ON condition.
+// Returns a new SelectQueryBuilder with the CROSS JOIN added.
+//
+// Example:
+//
+//	From("colors").CrossJoin("sizes")
+//	// SELECT * FROM `colors` CROSS JOIN `sizes`
+//
+//	From("colors").CrossJoinAs("sizes", "s")
+//	// SELECT * FROM `colors` CROSS JOIN `sizes` AS s
+func (q *SelectQueryBuilder) CrossJoin(table string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinCross,
+		table:    table,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// CrossJoinAs adds a CROSS JOIN clause with a table alias.
+// CROSS JOIN produces a cartesian product and does not require an ON condition.
+// Returns a new SelectQueryBuilder with the CROSS JOIN added.
+//
+// Example:
+//
+//	From("colors").CrossJoinAs("sizes", "s")
+//	// SELECT * FROM `colors` CROSS JOIN `sizes` AS s
+func (q *SelectQueryBuilder) CrossJoinAs(table string, alias string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinCross,
+		table:    table,
+		alias:    alias,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// FullOuterJoin starts building a FULL OUTER JOIN clause for the specified table.
+// Returns a JoinBuilder that must be finalized with On() to set the join condition.
+//
+// Example:
+//
+//	From("employees").As("e").
+//		FullOuterJoin("departments").As("d").On("e.dept_id = d.id")
+//	// SELECT * FROM `employees` AS e FULL OUTER JOIN `departments` AS d ON `e`.`dept_id` = `d`.`id`
+func (q *SelectQueryBuilder) FullOuterJoin(table string) *JoinBuilder {
+	return &JoinBuilder{
+		query:    q,
+		joinType: JoinFullOuter,
+		table:    table,
+	}
+}
+
+// NaturalJoin adds a NATURAL JOIN clause for the specified table.
+// NATURAL JOIN automatically matches on columns with the same name and does not
+// require an ON condition. Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("orders").NaturalJoin("customers")
+//	// SELECT * FROM `orders` NATURAL JOIN `customers`
+func (q *SelectQueryBuilder) NaturalJoin(table string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNatural,
+		table:    table,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// NaturalJoinAs adds a NATURAL JOIN clause with a table alias.
+// Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("orders").NaturalJoinAs("customers", "c")
+//	// SELECT * FROM `orders` NATURAL JOIN `customers` AS c
+func (q *SelectQueryBuilder) NaturalJoinAs(table string, alias string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNatural,
+		table:    table,
+		alias:    alias,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// NaturalLeftJoin adds a NATURAL LEFT JOIN clause for the specified table.
+// Combines NATURAL JOIN semantics (auto-match columns) with LEFT JOIN behavior
+// (all rows from left table). Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("orders").NaturalLeftJoin("customers")
+//	// SELECT * FROM `orders` NATURAL LEFT JOIN `customers`
+func (q *SelectQueryBuilder) NaturalLeftJoin(table string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNaturalLeft,
+		table:    table,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// NaturalLeftJoinAs adds a NATURAL LEFT JOIN clause with a table alias.
+// Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("orders").NaturalLeftJoinAs("customers", "c")
+//	// SELECT * FROM `orders` NATURAL LEFT JOIN `customers` AS c
+func (q *SelectQueryBuilder) NaturalLeftJoinAs(table string, alias string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNaturalLeft,
+		table:    table,
+		alias:    alias,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// NaturalRightJoin adds a NATURAL RIGHT JOIN clause for the specified table.
+// Combines NATURAL JOIN semantics (auto-match columns) with RIGHT JOIN behavior
+// (all rows from right table). Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("orders").NaturalRightJoin("customers")
+//	// SELECT * FROM `orders` NATURAL RIGHT JOIN `customers`
+func (q *SelectQueryBuilder) NaturalRightJoin(table string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNaturalRight,
+		table:    table,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// NaturalRightJoinAs adds a NATURAL RIGHT JOIN clause with a table alias.
+// Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("orders").NaturalRightJoinAs("customers", "c")
+//	// SELECT * FROM `orders` NATURAL RIGHT JOIN `customers` AS c
+func (q *SelectQueryBuilder) NaturalRightJoinAs(table string, alias string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNaturalRight,
+		table:    table,
+		alias:    alias,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// NaturalFullJoin adds a NATURAL FULL OUTER JOIN clause for the specified table.
+// Combines NATURAL JOIN semantics (auto-match columns) with FULL OUTER JOIN behavior
+// (all rows from both tables). Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("employees").NaturalFullJoin("departments")
+//	// SELECT * FROM `employees` NATURAL FULL OUTER JOIN `departments`
+func (q *SelectQueryBuilder) NaturalFullJoin(table string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNaturalFull,
+		table:    table,
+		config:   newQuery.config,
+	})
+
+	return newQuery
+}
+
+// NaturalFullJoinAs adds a NATURAL FULL OUTER JOIN clause with a table alias.
+// Returns a new SelectQueryBuilder with the join added.
+//
+// Example:
+//
+//	From("employees").NaturalFullJoinAs("departments", "d")
+//	// SELECT * FROM `employees` NATURAL FULL OUTER JOIN `departments` AS d
+func (q *SelectQueryBuilder) NaturalFullJoinAs(table string, alias string) *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.sqlerJoin.AddJoin(JoinClause{
+		joinType: JoinNaturalFull,
+		table:    table,
+		alias:    alias,
+		config:   newQuery.config,
+	})
 
 	return newQuery
 }
@@ -456,6 +821,17 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 	if q.tableAlias != "" {
 		sqlBuilder.WriteString(" AS ")
 		sqlBuilder.WriteString(q.tableAlias)
+	}
+
+	// JOIN clauses
+	if sql, args, err = q.sqlerJoin.toSqlWithStartIndex(paramIndex); err != nil {
+		return "", nil, fmt.Errorf("could not build JOIN clause: %w", err)
+	}
+	if sql != "" {
+		sqlBuilder.WriteString(" ")
+		sqlBuilder.WriteString(sql)
+		params = append(params, args...)
+		paramIndex += len(args)
 	}
 
 	// WHERE clause

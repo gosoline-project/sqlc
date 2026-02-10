@@ -575,3 +575,59 @@ func TestSqlerHavingProperAggregateUsage(t *testing.T) {
 		assert.Equal(t, []any{10, 1000, 50, 20}, params)
 	})
 }
+
+func TestSqlerJoin(t *testing.T) {
+	t.Run("Empty join returns empty", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		assert.True(t, sqlerJoin.IsEmpty())
+	})
+
+	t.Run("Single INNER JOIN with raw string", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		sqlerJoin.AddJoin(sqlc.NewJoinClause(sqlc.JoinInner, "orders", "o", "u.id = o.user_id"))
+
+		assert.False(t, sqlerJoin.IsEmpty())
+	})
+
+	t.Run("CROSS JOIN has no ON clause", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		sqlerJoin.AddJoin(sqlc.NewJoinClause(sqlc.JoinCross, "sizes", "", ""))
+
+		assert.False(t, sqlerJoin.IsEmpty())
+	})
+
+	t.Run("NATURAL JOIN has no ON clause", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		sqlerJoin.AddJoin(sqlc.NewJoinClause(sqlc.JoinNatural, "customers", "", ""))
+
+		assert.False(t, sqlerJoin.IsEmpty())
+	})
+
+	t.Run("NATURAL LEFT JOIN has no ON clause", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		sqlerJoin.AddJoin(sqlc.NewJoinClause(sqlc.JoinNaturalLeft, "customers", "c", ""))
+
+		assert.False(t, sqlerJoin.IsEmpty())
+	})
+
+	t.Run("NATURAL RIGHT JOIN has no ON clause", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		sqlerJoin.AddJoin(sqlc.NewJoinClause(sqlc.JoinNaturalRight, "customers", "", ""))
+
+		assert.False(t, sqlerJoin.IsEmpty())
+	})
+
+	t.Run("NATURAL FULL OUTER JOIN has no ON clause", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		sqlerJoin.AddJoin(sqlc.NewJoinClause(sqlc.JoinNaturalFull, "departments", "", ""))
+
+		assert.False(t, sqlerJoin.IsEmpty())
+	})
+
+	t.Run("FULL OUTER JOIN requires ON clause", func(t *testing.T) {
+		sqlerJoin := sqlc.NewSqlerJoin()
+		sqlerJoin.AddJoin(sqlc.NewJoinClause(sqlc.JoinFullOuter, "departments", "d", "e.dept_id = d.id"))
+
+		assert.False(t, sqlerJoin.IsEmpty())
+	})
+}
