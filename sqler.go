@@ -51,6 +51,7 @@ func (s *SqlerWhere) IsEmpty() bool {
 //	// params: []any{"active"}
 func (s *SqlerWhere) WithConfig(config *QueryBuilderConfig) *SqlerWhere {
 	s.config = config
+
 	return s
 }
 
@@ -204,6 +205,7 @@ func (s *SqlerGroupBy) IsEmpty() bool {
 //	// sql: "\"status\""
 func (s *SqlerGroupBy) WithConfig(config *QueryBuilderConfig) *SqlerGroupBy {
 	s.config = config
+
 	return s
 }
 
@@ -295,6 +297,7 @@ func (s *SqlerHaving) IsEmpty() bool {
 //	// params: []any{10}
 func (s *SqlerHaving) WithConfig(config *QueryBuilderConfig) *SqlerHaving {
 	s.config = config
+
 	return s
 }
 
@@ -538,6 +541,20 @@ func (s *SqlerJoin) AddJoin(clause JoinClause) {
 	s.clauses = append(s.clauses, clause)
 }
 
+// ToSql generates the complete JOIN SQL fragment.
+// Returns the SQL string (all JOINs separated by spaces), parameters, and any error encountered.
+//
+// Example:
+//
+//	sqlerJoin := NewSqlerJoin()
+//	sqlerJoin.AddJoin(NewJoinClause(JoinLeft, "orders", "o", "u.id = o.user_id"))
+//	sql, params, err := sqlerJoin.ToSql()
+//	// sql: "LEFT JOIN `orders` AS o ON u.id = o.user_id"
+//	// params: []any{}
+func (s *SqlerJoin) ToSql() (query string, params []any, err error) {
+	return s.toSqlWithStartIndex(0)
+}
+
 // toSqlWithStartIndex generates the complete JOIN SQL fragment with a custom starting parameter index.
 // Returns the SQL string (all JOINs separated by spaces), parameters, and any error encountered.
 func (s *SqlerJoin) toSqlWithStartIndex(startIndex int) (query string, params []any, err error) {
@@ -601,6 +618,7 @@ func (s *SqlerOrderBy) IsEmpty() bool {
 //	// sql: "\"name\" ASC"
 func (s *SqlerOrderBy) WithConfig(config *QueryBuilderConfig) *SqlerOrderBy {
 	s.config = config
+
 	return s
 }
 
