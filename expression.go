@@ -115,16 +115,19 @@ func (e *Expression) applyCondition(condition string, parameters ...any) *Expres
 	return expr
 }
 
-// Col creates a new Expression from a column name.
+// Col creates a new Expression from a column name or table-qualified column.
 // The column name can be simple ("id"), table-qualified ("users.id"),
 // or include JSON operators ("data->'$.email'").
+// You can also pass table and column as separate arguments.
 //
 // Example:
 //
-//	Col("name")                  // Simple column
-//	Col("users.email")           // Table-qualified
-//	Col("metadata->'$.address'") // JSON expression
-func Col(name string) *Expression {
+//	Col("name")                     // Simple column
+//	Col("users", "email")           // Table-qualified (separate args)
+//	Col("users.email")              // Table-qualified (single string)
+//	Col("metadata->'$.address'")    // JSON expression
+func Col(parts ...string) *Expression {
+	name := strings.Join(parts, ".")
 	return &Expression{raw: name}
 }
 

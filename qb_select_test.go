@@ -22,6 +22,17 @@ func TestSimpleSelect(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+func TestSimpleSelectQualified(t *testing.T) {
+	q := sqlc.From("users").
+		Columns(sqlc.Col("users", "id"), sqlc.Col("users", "name"), sqlc.Col("users", "email"))
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `users`.`id`, `users`.`name`, `users`.`email` FROM `users`", sql)
+	assert.Empty(t, params)
+}
+
 func TestSelectWithWhere(t *testing.T) {
 	q := sqlc.From("users").
 		Columns("id", "name", "email").
