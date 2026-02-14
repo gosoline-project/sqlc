@@ -2162,10 +2162,8 @@ func TestSelectWithJoinExpressionCondition(t *testing.T) {
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u LEFT JOIN `orders` AS o ON `u`.`id` = ?", sql)
-	// The Eq expression treats the second argument (Col("o.user_id")) as a parameter value
-	// For column-to-column comparisons using expressions, users would typically use raw strings
-	assert.Len(t, params, 1)
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u LEFT JOIN `orders` AS o ON `u`.`id` = `o`.`user_id`", sql)
+	assert.Empty(t, params)
 }
 
 func TestSelectWithJoinRawStringColumnComparison(t *testing.T) {
@@ -2295,8 +2293,8 @@ func TestSelectWithJoinExpressionAndCondition(t *testing.T) {
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u JOIN `orders` AS o ON (`u`.`id` = ? AND `o`.`status` = ?)", sql)
-	assert.Len(t, params, 2)
+	assert.Equal(t, "SELECT `u`.`name`, `o`.`total` FROM `users` AS u JOIN `orders` AS o ON (`u`.`id` = `o`.`user_id` AND `o`.`status` = ?)", sql)
+	assert.Equal(t, []any{"completed"}, params)
 }
 
 func TestSelectWithJoinImmutability(t *testing.T) {
@@ -2429,17 +2427,14 @@ func TestSelectWithFullOuterJoinNoAlias(t *testing.T) {
 }
 
 func TestSelectWithFullOuterJoinExpression(t *testing.T) {
-	// Note: Col("x").Eq(Col("y")) treats the second Col as a parameter value.
-	// For column-to-column comparisons, raw strings are the idiomatic approach.
-	// This test verifies expression-based ON works with FULL OUTER JOIN.
 	q := sqlc.From("employees").As("e").
 		FullOuterJoin("departments").As("d").On(sqlc.Col("e.dept_id").Eq(sqlc.Col("d.id")))
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "SELECT * FROM `employees` AS e FULL OUTER JOIN `departments` AS d ON `e`.`dept_id` = ?", sql)
-	assert.Len(t, params, 1)
+	assert.Equal(t, "SELECT * FROM `employees` AS e FULL OUTER JOIN `departments` AS d ON `e`.`dept_id` = `d`.`id`", sql)
+	assert.Empty(t, params)
 }
 
 func TestSelectWithFullOuterJoinAndWhere(t *testing.T) {

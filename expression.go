@@ -19,17 +19,18 @@ import (
 //
 // Expressions are immutable - each method returns a new Expression instance.
 type Expression struct {
-	raw          string
-	function     string
-	functionArgs []any         // additional arguments for functions like ROUND(col, 2) - legacy, inline rendering
-	funcArgs     []*Expression // new: function arguments as expressions (supports bind params)
-	alias        string
-	direction    string // for ORDER BY
-	condition    string // for WHERE conditions like "IN", "=", etc.
-	parameters   []any
-	isLiteral    bool // if true, raw value is not quoted
-	isParam      bool // if true, this is a bind parameter (renders as "?")
-	paramValue   any  // the value for bind parameter
+	raw           string
+	function      string
+	functionArgs  []any         // additional arguments for functions like ROUND(col, 2) - legacy, inline rendering
+	funcArgs      []*Expression // new: function arguments as expressions (supports bind params)
+	alias         string
+	direction     string // for ORDER BY
+	condition     string // for WHERE conditions like "IN", "=", etc.
+	parameters    []any
+	conditionExpr *Expression // for column-to-column comparisons like Col("a.id").Eq(Col("b.id"))
+	isLiteral     bool        // if true, raw value is not quoted
+	isParam       bool        // if true, this is a bind parameter (renders as "?")
+	paramValue    any         // the value for bind parameter
 	// For composite expressions (AND, OR, NOT)
 	operator       string // "AND", "OR", "NOT"
 	subExpressions []*Expression
@@ -48,6 +49,7 @@ func (e *Expression) copy() *Expression {
 		direction:      e.direction,
 		condition:      e.condition,
 		parameters:     e.parameters,
+		conditionExpr:  e.conditionExpr,
 		isLiteral:      e.isLiteral,
 		isParam:        e.isParam,
 		paramValue:     e.paramValue,
@@ -107,10 +109,20 @@ func (e *Expression) wrapWithFunctionArgs(functionName string, args ...any) *Exp
 func (e *Expression) applyCondition(condition string, parameters ...any) *Expression {
 	expr := e.copy()
 	expr.condition = condition
-	expr.parameters = parameters
 	// Clear direction and alias as they don't apply to conditions
 	expr.direction = ""
 	expr.alias = ""
+	expr.conditionExpr = nil
+
+	if len(parameters) == 1 {
+		if exprParam, ok := parameters[0].(*Expression); ok {
+			expr.conditionExpr = exprParam
+			expr.parameters = nil
+			return expr
+		}
+	}
+
+	expr.parameters = parameters
 
 	return expr
 }
@@ -593,6 +605,11 @@ func (e *Expression) toConditionSQL(quote string) string {
 		return fmt.Sprintf("%s %s", colExpr, e.condition)
 	}
 
+	if e.conditionExpr != nil {
+		rightExpr := e.conditionExpr.toBaseSQL(quote)
+		return fmt.Sprintf("%s %s %s", colExpr, e.condition, rightExpr)
+	}
+
 	if e.condition == "IN" || e.condition == "NOT IN" {
 		placeholders := make([]string, len(e.parameters))
 		for i := range placeholders {
@@ -666,6 +683,10 @@ func (e *Expression) collectParameters() []any {
 		for _, subExpr := range e.subExpressions {
 			params = append(params, subExpr.collectParameters()...)
 		}
+	}
+
+	if e.conditionExpr != nil {
+		return append(params, e.conditionExpr.collectParameters()...)
 	}
 
 	// Add condition parameters (for Eq, Gt, In, etc.)
