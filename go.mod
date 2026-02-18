@@ -6,7 +6,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/jmoiron/sqlx v1.3.4
-	github.com/justtrackio/gosoline v0.54.2
+	github.com/justtrackio/gosoline v0.55.0
 	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.19.2
 	github.com/stretchr/testify v1.11.1
@@ -48,6 +48,7 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/elastic/go-elasticsearch/v7 v7.2.1-0.20190714143206-f1e755531ff4 // indirect
+	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
