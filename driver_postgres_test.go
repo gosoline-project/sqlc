@@ -25,7 +25,7 @@ type PostgresDriverTestSuite struct {
 func (s *PostgresDriverTestSuite) SetupTest() {
 	s.config = cfg.New()
 	err := s.config.Option(cfg.WithConfigMap(map[string]any{
-		"app_name": "test",
+		"app.name": "test",
 	}))
 	s.NoError(err)
 

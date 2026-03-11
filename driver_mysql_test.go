@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
-	"github.com/justtrackio/gosoline/pkg/db"
 	"github.com/justtrackio/gosoline/pkg/log"
 	logMocks "github.com/justtrackio/gosoline/pkg/log/mocks"
 	"github.com/stretchr/testify/suite"
@@ -20,17 +20,17 @@ type MysqlDriverTestSuite struct {
 
 	config   cfg.GosoConf
 	logger   log.Logger
-	settings *db.Settings
+	settings *sqlc.Settings
 }
 
 func (s *MysqlDriverTestSuite) SetupTest() {
 	s.config = cfg.New()
 	err := s.config.Option(cfg.WithConfigMap(map[string]any{
-		"app_name": "test",
+		"app.name": "test",
 	}))
 	s.NoError(err)
 
-	s.settings = &db.Settings{}
+	s.settings = &sqlc.Settings{}
 	err = s.config.UnmarshalDefaults(s.settings)
 	s.NoError(err)
 
@@ -38,7 +38,7 @@ func (s *MysqlDriverTestSuite) SetupTest() {
 }
 
 func (s *MysqlDriverTestSuite) TestDsn() {
-	driver, err := db.NewMysqlDriver(s.logger)
+	driver, err := sqlc.NewMysqlDriver(s.logger)
 	s.NoError(err)
 
 	dsn := driver.GetDSN(s.settings)

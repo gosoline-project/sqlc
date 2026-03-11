@@ -129,6 +129,7 @@ func (j *JoinBuilder) On(condition any, params ...any) *SelectQueryBuilder {
 //	From("orders").As("o")          // SELECT * FROM `orders` AS o
 func From(table string) *SelectQueryBuilder {
 	cfg := DefaultConfig()
+
 	return &SelectQueryBuilder{
 		table:        table,
 		config:       cfg,
@@ -769,6 +770,23 @@ func (q *SelectQueryBuilder) Offset(offset int) *SelectQueryBuilder {
 	return newQuery
 }
 
+func (q *SelectQueryBuilder) writeProjections(sqlBuilder *strings.Builder) (params []any) {
+	if len(q.projections) == 0 {
+		sqlBuilder.WriteString("*")
+
+		return nil
+	}
+
+	sqlBuilder.WriteString(strings.Join(q.projections, ", "))
+	for _, expr := range q.projectionExprs {
+		if expr != nil {
+			params = append(params, expr.collectParameters()...)
+		}
+	}
+
+	return params
+}
+
 // ToSql generates the final SQL query string and parameter list.
 // Returns the SQL string, parameters slice, and any error encountered during building.
 // This method should be called when you need the raw SQL for manual execution.
@@ -802,18 +820,8 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 		sqlBuilder.WriteString("DISTINCT ")
 	}
 
-	if len(q.projections) == 0 {
-		sqlBuilder.WriteString("*")
-	} else {
-		sqlBuilder.WriteString(strings.Join(q.projections, ", "))
-		// Collect parameters from projection expressions
-		for _, expr := range q.projectionExprs {
-			if expr != nil {
-				params = append(params, expr.collectParameters()...)
-			}
-		}
-		paramIndex = len(params)
-	}
+	params = q.writeProjections(&sqlBuilder)
+	paramIndex = len(params)
 
 	// FROM clause
 	sqlBuilder.WriteString(" FROM ")
@@ -876,14 +884,14 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 
 	// LIMIT clause
 	if q.limitValue != nil {
-		sqlBuilder.WriteString(fmt.Sprintf(" LIMIT %s", q.config.PlaceholderFormat(paramIndex)))
+		_, _ = fmt.Fprintf(&sqlBuilder, " LIMIT %s", q.config.PlaceholderFormat(paramIndex))
 		params = append(params, *q.limitValue)
 		paramIndex++
 	}
 
 	// OFFSET clause
 	if q.offsetValue != nil {
-		sqlBuilder.WriteString(fmt.Sprintf(" OFFSET %s", q.config.PlaceholderFormat(paramIndex)))
+		_, _ = fmt.Fprintf(&sqlBuilder, " OFFSET %s", q.config.PlaceholderFormat(paramIndex))
 		params = append(params, *q.offsetValue)
 	}
 

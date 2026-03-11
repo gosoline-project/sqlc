@@ -52,6 +52,7 @@ func (q *QueryBuilder) From(table string) *SelectQueryBuilder {
 	if q.config != nil {
 		builder = builder.WithConfig(q.config)
 	}
+
 	return builder
 }
 
@@ -67,6 +68,7 @@ func (q *QueryBuilder) Into(table string) *InsertQueryBuilder {
 	if q.config != nil {
 		builder = builder.WithConfig(q.config)
 	}
+
 	return builder
 }
 
@@ -82,6 +84,7 @@ func (q *QueryBuilder) Update(table string) *UpdateQueryBuilder {
 	if q.config != nil {
 		builder = builder.WithConfig(q.config)
 	}
+
 	return builder
 }
 
@@ -97,5 +100,6 @@ func (q *QueryBuilder) Delete(table string) *DeleteQueryBuilder {
 	if q.config != nil {
 		builder = builder.WithConfig(q.config)
 	}
+
 	return builder
 }

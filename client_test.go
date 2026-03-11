@@ -350,6 +350,7 @@ func (s *ClientTestSuite) TestWithTx_SuccessfulCommit() {
 
 	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
 		_, err := tx.Exec(s.ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
+
 		return err
 	})
 
@@ -380,6 +381,7 @@ func (s *ClientTestSuite) TestWithTx_DatabaseErrorRollsBack() {
 
 	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
 		_, err := tx.Exec(s.ctx, "INSERT INTO users (name, email) VALUES (?, ?)", "John", "john@example.com")
+
 		return err
 	})
 
@@ -447,6 +449,7 @@ func (s *ClientTestSuite) TestWithTx_MultipleOperations() {
 		}
 
 		_, err = tx.Exec(s.ctx, "INSERT INTO profiles (user_id, role) VALUES (?, ?)", userID, "Developer")
+
 		return err
 	})
 

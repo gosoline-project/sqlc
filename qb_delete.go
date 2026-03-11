@@ -52,6 +52,7 @@ type DeleteQueryBuilder struct {
 //	Delete("logs")                    // DELETE FROM `logs`
 func Delete(table string) *DeleteQueryBuilder {
 	cfg := DefaultConfig()
+
 	return &DeleteQueryBuilder{
 		table:        table,
 		sqlerWhere:   NewSqlerWhere().WithConfig(cfg),
@@ -268,7 +269,7 @@ func (q *DeleteQueryBuilder) buildDeleteSql() (query string, params []any, err e
 
 	// LIMIT clause
 	if q.limitValue != nil {
-		sql.WriteString(fmt.Sprintf(" LIMIT %s", q.config.PlaceholderFormat(paramIndex)))
+		_, _ = fmt.Fprintf(&sql, " LIMIT %s", q.config.PlaceholderFormat(paramIndex))
 		params = append(params, *q.limitValue)
 	}
 

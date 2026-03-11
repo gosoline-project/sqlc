@@ -479,7 +479,11 @@ func ExampleDelete() {
 	q := sqlc.Delete("users").
 		Where("status = ?", "inactive")
 
-	sql, params, _ := q.ToSql()
+	sql, params, err := q.ToSql()
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println(sql)
 	fmt.Printf("params: %v\n", params)
 
@@ -495,7 +499,11 @@ func ExampleDeleteQueryBuilder_OrderBy() {
 		OrderBy("created_at ASC").
 		Limit(1000)
 
-	sql, params, _ := q.ToSql()
+	sql, params, err := q.ToSql()
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println(sql)
 	fmt.Printf("params: %v\n", params)
 
@@ -512,7 +520,11 @@ func ExampleDeleteQueryBuilder_Where_expression() {
 			sqlc.Col("created_at").Lt("2020-01-01"),
 		))
 
-	sql, params, _ := q.ToSql()
+	sql, params, err := q.ToSql()
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println(sql)
 	fmt.Printf("params: %v\n", params)
 

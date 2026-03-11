@@ -40,6 +40,7 @@ func quoteIdentifier(name string, quote string) string {
 			if part == "*" {
 				return part
 			}
+
 			return quote + part + quote
 		})
 
@@ -77,7 +78,7 @@ func isOperator(token string) bool {
 
 // isNumericLiteral returns true if the token looks like a numeric literal (integer or decimal).
 func isNumericLiteral(token string) bool {
-	if len(token) == 0 {
+	if token == "" {
 		return false
 	}
 

@@ -58,6 +58,7 @@ type UpdateQueryBuilder struct {
 //	Update("orders")                  // UPDATE `orders`
 func Update(table string) *UpdateQueryBuilder {
 	cfg := DefaultConfig()
+
 	return &UpdateQueryBuilder{
 		table:        table,
 		sets:         []Assignment{},
@@ -445,7 +446,7 @@ func (q *UpdateQueryBuilder) buildUpdateSql(assignments []Assignment) (query str
 
 	// LIMIT clause
 	if q.limitValue != nil {
-		sql.WriteString(fmt.Sprintf(" LIMIT %s", q.config.PlaceholderFormat(paramIndex)))
+		_, _ = fmt.Fprintf(&sql, " LIMIT %s", q.config.PlaceholderFormat(paramIndex))
 		params = append(params, *q.limitValue)
 	}
 

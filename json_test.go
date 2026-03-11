@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/justtrackio/gosoline/pkg/db"
+	"github.com/gosoline-project/sqlc"
 	"github.com/stretchr/testify/require"
 )
 
 type (
-	JSONTestCase[BehaviourFrom, BehaviourTo db.Nullable | db.NonNullable] struct {
+	JSONTestCase[BehaviourFrom, BehaviourTo sqlc.Nullable | sqlc.NonNullable] struct {
 		description
 		fromBehaviour BehaviourFrom
 	}
@@ -23,11 +23,11 @@ type (
 		Desc() string
 	}
 
-	StandardTestCase[BehaviourFrom, BehaviourTo db.Nullable | db.NonNullable]    JSONTestCase[BehaviourFrom, BehaviourTo]
-	NilTestCase[BehaviourFrom, BehaviourTo db.Nullable | db.NonNullable]         JSONTestCase[BehaviourFrom, BehaviourTo]
-	EmptyStringTestCase[BehaviourFrom, BehaviourTo db.Nullable | db.NonNullable] JSONTestCase[BehaviourFrom, BehaviourTo]
-	NilMapTestCase[BehaviourFrom, BehaviourTo db.Nullable | db.NonNullable]      JSONTestCase[BehaviourFrom, BehaviourTo]
-	NilSliceTestCase[BehaviourFrom, BehaviourTo db.Nullable | db.NonNullable]    JSONTestCase[BehaviourFrom, BehaviourTo]
+	StandardTestCase[BehaviourFrom, BehaviourTo sqlc.Nullable | sqlc.NonNullable]    JSONTestCase[BehaviourFrom, BehaviourTo]
+	NilTestCase[BehaviourFrom, BehaviourTo sqlc.Nullable | sqlc.NonNullable]         JSONTestCase[BehaviourFrom, BehaviourTo]
+	EmptyStringTestCase[BehaviourFrom, BehaviourTo sqlc.Nullable | sqlc.NonNullable] JSONTestCase[BehaviourFrom, BehaviourTo]
+	NilMapTestCase[BehaviourFrom, BehaviourTo sqlc.Nullable | sqlc.NonNullable]      JSONTestCase[BehaviourFrom, BehaviourTo]
+	NilSliceTestCase[BehaviourFrom, BehaviourTo sqlc.Nullable | sqlc.NonNullable]    JSONTestCase[BehaviourFrom, BehaviourTo]
 )
 
 func (testCase StandardTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T) {
@@ -40,7 +40,7 @@ func (testCase StandardTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T) {
 		Foo: "bar",
 	}
 
-	jsonType := db.NewJSON(v, testCase.fromBehaviour)
+	jsonType := sqlc.NewJSON(v, testCase.fromBehaviour)
 
 	require.Equal(t, v, jsonType.Get())
 
@@ -51,7 +51,7 @@ func (testCase StandardTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, b, value)
-	parsed := &db.JSON[T, BehaviourTo]{}
+	parsed := &sqlc.JSON[T, BehaviourTo]{}
 	require.NoError(t, parsed.Scan(value))
 
 	require.Equal(t, jsonType.Get(), parsed.Get())
@@ -65,20 +65,20 @@ func (testCase NilTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T) {
 	}
 	var v *T
 
-	jsonType := db.NewJSON(v, testCase.fromBehaviour)
+	jsonType := sqlc.NewJSON(v, testCase.fromBehaviour)
 
 	require.Equal(t, v, jsonType.Get())
 
 	value, err := jsonType.Value()
 	require.NoError(t, err)
 
-	if db.IsNullable(testCase.fromBehaviour).IsNullable() {
+	if sqlc.IsNullable(testCase.fromBehaviour).IsNullable() {
 		require.Nil(t, value)
 	} else {
 		require.Equal(t, []byte("null"), value)
 	}
 
-	parsed := &db.JSON[*T, BehaviourTo]{}
+	parsed := &sqlc.JSON[*T, BehaviourTo]{}
 	require.NoError(t, parsed.Scan(value))
 
 	require.Equal(t, jsonType.Get(), parsed.Get())
@@ -89,7 +89,7 @@ func (testCase EmptyStringTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T
 
 	var v string
 
-	jsonType := db.NewJSON(v, testCase.fromBehaviour)
+	jsonType := sqlc.NewJSON(v, testCase.fromBehaviour)
 
 	require.Equal(t, v, jsonType.Get())
 
@@ -98,7 +98,7 @@ func (testCase EmptyStringTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T
 
 	require.Equal(t, "\"\"", string(value.([]byte)))
 
-	parsed := &db.JSON[string, BehaviourTo]{}
+	parsed := &sqlc.JSON[string, BehaviourTo]{}
 	require.NoError(t, parsed.Scan(value))
 
 	require.Equal(t, jsonType.Get(), parsed.Get())
@@ -112,20 +112,20 @@ func (testCase NilSliceTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T) {
 	}
 	var v []T
 
-	jsonType := db.NewJSON(v, testCase.fromBehaviour)
+	jsonType := sqlc.NewJSON(v, testCase.fromBehaviour)
 
 	require.Equal(t, v, jsonType.Get())
 
 	value, err := jsonType.Value()
 	require.NoError(t, err)
 
-	if db.IsNullable(testCase.fromBehaviour).IsNullable() {
+	if sqlc.IsNullable(testCase.fromBehaviour).IsNullable() {
 		require.Nil(t, value)
 	} else {
 		require.Equal(t, []byte("null"), value)
 	}
 
-	parsed := &db.JSON[*T, BehaviourTo]{}
+	parsed := &sqlc.JSON[*T, BehaviourTo]{}
 	require.NoError(t, parsed.Scan(value))
 
 	require.Equal(t, jsonType.Get(), parsed.Get())
@@ -139,20 +139,20 @@ func (testCase NilMapTestCase[BehaviourFrom, BehaviourTo]) Run(t *testing.T) {
 	}
 	var v map[T]T
 
-	jsonType := db.NewJSON(v, testCase.fromBehaviour)
+	jsonType := sqlc.NewJSON(v, testCase.fromBehaviour)
 
 	require.Equal(t, v, jsonType.Get())
 
 	value, err := jsonType.Value()
 	require.NoError(t, err)
 
-	if db.IsNullable(testCase.fromBehaviour).IsNullable() {
+	if sqlc.IsNullable(testCase.fromBehaviour).IsNullable() {
 		require.Nil(t, value)
 	} else {
 		require.Equal(t, []byte("null"), value)
 	}
 
-	parsed := &db.JSON[*T, BehaviourTo]{}
+	parsed := &sqlc.JSON[*T, BehaviourTo]{}
 	require.NoError(t, parsed.Scan(value))
 
 	require.Equal(t, jsonType.Get(), parsed.Get())
@@ -167,16 +167,16 @@ func TestJSON(t *testing.T) {
 		Runnable
 		Describable
 	}{
-		StandardTestCase[db.NonNullable, db.NonNullable]{
+		StandardTestCase[sqlc.NonNullable, sqlc.NonNullable]{
 			description: "NonNullable To NonNullable",
 		},
-		StandardTestCase[db.Nullable, db.NonNullable]{
+		StandardTestCase[sqlc.Nullable, sqlc.NonNullable]{
 			description: "Nullable To NonNullable",
 		},
-		StandardTestCase[db.NonNullable, db.Nullable]{
+		StandardTestCase[sqlc.NonNullable, sqlc.Nullable]{
 			description: "NonNullable To Nullable",
 		},
-		StandardTestCase[db.Nullable, db.Nullable]{
+		StandardTestCase[sqlc.Nullable, sqlc.Nullable]{
 			description: "Nullable To Nullable",
 		},
 	}
@@ -190,16 +190,16 @@ func TestJSONNil(t *testing.T) {
 		Runnable
 		Describable
 	}{
-		NilTestCase[db.NonNullable, db.NonNullable]{
+		NilTestCase[sqlc.NonNullable, sqlc.NonNullable]{
 			description: "NonNullable To NonNullable",
 		},
-		NilTestCase[db.Nullable, db.NonNullable]{
+		NilTestCase[sqlc.Nullable, sqlc.NonNullable]{
 			description: "Nullable To NonNullable",
 		},
-		NilTestCase[db.NonNullable, db.Nullable]{
+		NilTestCase[sqlc.NonNullable, sqlc.Nullable]{
 			description: "NonNullable To Nullable",
 		},
-		NilTestCase[db.Nullable, db.Nullable]{
+		NilTestCase[sqlc.Nullable, sqlc.Nullable]{
 			description: "Nullable To Nullable",
 		},
 	}
@@ -213,16 +213,16 @@ func TestJSONEmptyString(t *testing.T) {
 		Runnable
 		Describable
 	}{
-		EmptyStringTestCase[db.NonNullable, db.NonNullable]{
+		EmptyStringTestCase[sqlc.NonNullable, sqlc.NonNullable]{
 			description: "NonNullable To NonNullable",
 		},
-		EmptyStringTestCase[db.Nullable, db.NonNullable]{
+		EmptyStringTestCase[sqlc.Nullable, sqlc.NonNullable]{
 			description: "Nullable To NonNullable",
 		},
-		EmptyStringTestCase[db.NonNullable, db.Nullable]{
+		EmptyStringTestCase[sqlc.NonNullable, sqlc.Nullable]{
 			description: "NonNullable To Nullable",
 		},
-		EmptyStringTestCase[db.Nullable, db.Nullable]{
+		EmptyStringTestCase[sqlc.Nullable, sqlc.Nullable]{
 			description: "Nullable To Nullable",
 		},
 	}
@@ -236,16 +236,16 @@ func TestJSONNilMap(t *testing.T) {
 		Runnable
 		Describable
 	}{
-		EmptyStringTestCase[db.NonNullable, db.NonNullable]{
+		EmptyStringTestCase[sqlc.NonNullable, sqlc.NonNullable]{
 			description: "NonNullable To NonNullable",
 		},
-		EmptyStringTestCase[db.Nullable, db.NonNullable]{
+		EmptyStringTestCase[sqlc.Nullable, sqlc.NonNullable]{
 			description: "Nullable To NonNullable",
 		},
-		EmptyStringTestCase[db.NonNullable, db.Nullable]{
+		EmptyStringTestCase[sqlc.NonNullable, sqlc.Nullable]{
 			description: "NonNullable To Nullable",
 		},
-		EmptyStringTestCase[db.Nullable, db.Nullable]{
+		EmptyStringTestCase[sqlc.Nullable, sqlc.Nullable]{
 			description: "Nullable To Nullable",
 		},
 	}
@@ -259,16 +259,16 @@ func TestJSONNilSlice(t *testing.T) {
 		Runnable
 		Describable
 	}{
-		EmptyStringTestCase[db.NonNullable, db.NonNullable]{
+		EmptyStringTestCase[sqlc.NonNullable, sqlc.NonNullable]{
 			description: "NonNullable To NonNullable",
 		},
-		EmptyStringTestCase[db.Nullable, db.NonNullable]{
+		EmptyStringTestCase[sqlc.Nullable, sqlc.NonNullable]{
 			description: "Nullable To NonNullable",
 		},
-		EmptyStringTestCase[db.NonNullable, db.Nullable]{
+		EmptyStringTestCase[sqlc.NonNullable, sqlc.Nullable]{
 			description: "NonNullable To Nullable",
 		},
-		EmptyStringTestCase[db.Nullable, db.Nullable]{
+		EmptyStringTestCase[sqlc.Nullable, sqlc.Nullable]{
 			description: "Nullable To Nullable",
 		},
 	}
@@ -280,20 +280,20 @@ func TestJSONNilSlice(t *testing.T) {
 func TestJSONTypeEmptyStringParseNonNullable(t *testing.T) {
 	t.Parallel()
 
-	parsed := &db.JSON[string, db.NonNullable]{}
+	parsed := &sqlc.JSON[string, sqlc.NonNullable]{}
 	require.Error(t, parsed.Scan([]byte("")))
 }
 
 func TestJSONTypeEmptyStringParseNullable(t *testing.T) {
 	t.Parallel()
 
-	parsed := &db.JSON[string, db.Nullable]{}
+	parsed := &sqlc.JSON[string, sqlc.Nullable]{}
 	require.Error(t, parsed.Scan([]byte("")))
 }
 
 func TestInvalidType(t *testing.T) {
 	t.Parallel()
 
-	parsed := &db.JSON[string, db.Nullable]{}
-	require.Error(t, parsed.Scan(""), db.ErrJSONInvalidType)
+	parsed := &sqlc.JSON[string, sqlc.Nullable]{}
+	require.Error(t, parsed.Scan(""), sqlc.ErrJSONInvalidType)
 }

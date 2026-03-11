@@ -118,6 +118,7 @@ func (e *Expression) applyCondition(condition string, parameters ...any) *Expres
 		if exprParam, ok := parameters[0].(*Expression); ok {
 			expr.conditionExpr = exprParam
 			expr.parameters = nil
+
 			return expr
 		}
 	}
@@ -140,6 +141,7 @@ func (e *Expression) applyCondition(condition string, parameters ...any) *Expres
 //	Col("metadata->'$.address'")    // JSON expression
 func Col(parts ...string) *Expression {
 	name := strings.Join(parts, ".")
+
 	return &Expression{raw: name}
 }
 
@@ -493,8 +495,8 @@ func (e *Expression) NotLike(pattern string) *Expression {
 //	Col("age").Between(18, 65)                    // `age` BETWEEN ? AND ?
 //	Col("created_at").Between("2020-01-01", "2020-12-31") // `created_at` BETWEEN ? AND ?
 //	Col("price").Between(10.0, 99.99)             // `price` BETWEEN ? AND ?
-func (e *Expression) Between(min any, max any) *Expression {
-	return e.applyCondition("BETWEEN", min, max)
+func (e *Expression) Between(lowerBound any, upperBound any) *Expression {
+	return e.applyCondition("BETWEEN", lowerBound, upperBound)
 }
 
 // NotBetween creates a NOT BETWEEN condition (column NOT BETWEEN min AND max).
@@ -504,8 +506,8 @@ func (e *Expression) Between(min any, max any) *Expression {
 //
 //	Col("age").NotBetween(0, 17)                  // `age` NOT BETWEEN ? AND ?
 //	Col("price").NotBetween(100, 1000)            // `price` NOT BETWEEN ? AND ?
-func (e *Expression) NotBetween(min any, max any) *Expression {
-	return e.applyCondition("NOT BETWEEN", min, max)
+func (e *Expression) NotBetween(lowerBound any, upperBound any) *Expression {
+	return e.applyCondition("NOT BETWEEN", lowerBound, upperBound)
 }
 
 // toSQL converts the expression to a SQL fragment for SELECT, GROUP BY, or ORDER BY clauses.
@@ -530,50 +532,9 @@ func (e *Expression) toSQL(quote string) string {
 // toBaseSQL converts the expression to a SQL fragment without considering conditions.
 // This is used internally to avoid infinite recursion between toSQL and toConditionSQL.
 func (e *Expression) toBaseSQL(quote string) string {
-	var sql string
+	sql := e.toBaseValueSQL(quote)
+	sql = e.toFunctionSQL(sql, quote)
 
-	// Handle bind parameter expressions
-	if e.isParam {
-		sql = "?"
-	} else if e.isLiteral {
-		sql = e.raw // Don't quote literal values
-	} else if e.raw != "" {
-		sql = quoteIdentifier(e.raw, quote)
-	}
-
-	if e.function != "" {
-		// Handle functions with funcArgs (new parameter-aware style)
-		if len(e.funcArgs) > 0 {
-			argStrs := funk.Map(e.funcArgs, func(arg *Expression) string {
-				return arg.toSQL(quote)
-			})
-			sql = fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, ", "))
-		} else if len(e.subExpressions) > 0 {
-			// Handle functions with subExpressions (like CONCAT, CONCAT_WS, COALESCE, CAST)
-			argStrs := funk.Map(e.subExpressions, func(subExpr *Expression) string {
-				return subExpr.toSQL(quote)
-			})
-			// CAST uses space separator: CAST(expr AS type)
-			separator := ", "
-			if e.function == "CAST" {
-				separator = " "
-			}
-			sql = fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, separator))
-		} else if e.function == "LOCATE" && len(e.functionArgs) > 0 {
-			// LOCATE has reversed argument order: LOCATE(substr, str) - legacy handling
-			sql = fmt.Sprintf("LOCATE(%v, %s)", e.functionArgs[0], sql)
-		} else {
-			// Build function arguments normally (legacy inline style)
-			args := sql
-			if len(e.functionArgs) > 0 {
-				argStrs := append([]string{sql}, funk.Map(e.functionArgs, func(arg any) string {
-					return fmt.Sprintf("%v", arg)
-				})...)
-				args = strings.Join(argStrs, ", ")
-			}
-			sql = fmt.Sprintf("%s(%s)", e.function, args)
-		}
-	}
 	if e.alias != "" {
 		sql = fmt.Sprintf("%s AS %s", sql, e.alias)
 	}
@@ -582,6 +543,54 @@ func (e *Expression) toBaseSQL(quote string) string {
 	}
 
 	return sql
+}
+
+func (e *Expression) toBaseValueSQL(quote string) string {
+	switch {
+	case e.isParam:
+		return "?"
+	case e.isLiteral:
+		return e.raw
+	case e.raw != "":
+		return quoteIdentifier(e.raw, quote)
+	default:
+		return ""
+	}
+}
+
+func (e *Expression) toFunctionSQL(baseSQL string, quote string) string {
+	switch {
+	case e.function == "":
+		return baseSQL
+	case len(e.funcArgs) > 0:
+		argStrs := funk.Map(e.funcArgs, func(arg *Expression) string {
+			return arg.toSQL(quote)
+		})
+
+		return fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, ", "))
+	case len(e.subExpressions) > 0:
+		argStrs := funk.Map(e.subExpressions, func(subExpr *Expression) string {
+			return subExpr.toSQL(quote)
+		})
+		separator := ", "
+		if e.function == "CAST" {
+			separator = " "
+		}
+
+		return fmt.Sprintf("%s(%s)", e.function, strings.Join(argStrs, separator))
+	case e.function == "LOCATE" && len(e.functionArgs) > 0:
+		return fmt.Sprintf("LOCATE(%v, %s)", e.functionArgs[0], baseSQL)
+	default:
+		args := baseSQL
+		if len(e.functionArgs) > 0 {
+			argStrs := append([]string{baseSQL}, funk.Map(e.functionArgs, func(arg any) string {
+				return fmt.Sprintf("%v", arg)
+			})...)
+			args = strings.Join(argStrs, ", ")
+		}
+
+		return fmt.Sprintf("%s(%s)", e.function, args)
+	}
 }
 
 // toConditionSQL converts the expression to a WHERE condition SQL fragment.
@@ -607,6 +616,7 @@ func (e *Expression) toConditionSQL(quote string) string {
 
 	if e.conditionExpr != nil {
 		rightExpr := e.conditionExpr.toBaseSQL(quote)
+
 		return fmt.Sprintf("%s %s %s", colExpr, e.condition, rightExpr)
 	}
 
