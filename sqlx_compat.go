@@ -98,7 +98,7 @@ func NewConnectionWithInterfaces(logger log.Logger, settings *Settings) (*sqlx.D
 // This is useful for testing or when you want to provide custom implementations.
 // Deprecated: use NewClientWithDB together with WrapDB.
 func NewClientWithInterfaces(logger log.Logger, connection *sqlx.DB, executor exec.Executor, qbConfig *QueryBuilderConfig) *client {
-	return NewClientWithDB(logger, newDB(newSQLXDBAdapter(connection)), executor, qbConfig)
+	return NewClientWithDB(logger, newDB(newStdlibDBAdapter(connection.DB, connection.DriverName())), executor, qbConfig)
 }
 
 func (t *tx) SqlTx() *sqlx.Tx {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
@@ -82,7 +81,7 @@ func NewDBWithSettings(logger log.Logger, settings *Settings) (*DB, error) {
 // The driverName must match the registered SQL driver so named parameter
 // binding and placeholder handling behave correctly.
 func WrapDB(db *sql.DB, driverName string) *DB {
-	return newDB(newSQLXDBAdapter(sqlx.NewDb(db, driverName)))
+	return newDB(newStdlibDBAdapter(db, driverName))
 }
 
 // Close closes the underlying database handle.

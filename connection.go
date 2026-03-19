@@ -43,7 +43,7 @@ func newDBFromSettings(ctx context.Context, logger log.Logger, name string, sett
 }
 
 func newDBWithInterfaces(logger log.Logger, settings *Settings) (dbHandle, error) {
-	return newSQLXDBAdapterWithSettings(logger, settings)
+	return newStdlibDBAdapterWithSettings(logger, settings)
 }
 
 func getGenericDriver(driverName, dsn string) (driver.Driver, error) {
