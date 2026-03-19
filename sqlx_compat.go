@@ -2,6 +2,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
@@ -10,16 +11,12 @@ import (
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
-// Remaining direct sqlx touchpoints after this refactor are intentionally kept
-// in this compatibility layer while the public API migration is handled in
-// sqlc-b7a:
-// - NewClientWithInterfaces accepts *sqlx.DB for tests and downstream callers.
-// - ProvideConnection/NewConnection helpers still return *sqlx.DB.
-// - Tx.SqlTx() exposes the underlying *sqlx.Tx escape hatch.
-// - sqlx_adapter.go contains the temporary sqlx-backed runtime adapter.
+// Remaining direct sqlx touchpoints are intentionally isolated in this
+// compatibility layer while downstream users migrate to sqlc-owned APIs.
 
 // Row represents a single row returned from a query.
-type Row = sqlx.Row
+// Deprecated: use the *sql.Row values returned by QueryRow or QueryRowContext.
+type Row = sql.Row
 
 // Tx represents a transaction-scoped query client.
 type Tx interface {
@@ -28,6 +25,8 @@ type Tx interface {
 	Q() *QueryBuilder
 	Commit() error
 	Rollback() error
+	SQLTx() *sql.Tx
+	// Deprecated: use SQLTx instead.
 	SqlTx() *sqlx.Tx
 	WithContext(ctx context.Context) Tx
 }
@@ -41,67 +40,65 @@ type sqlxTxAccessor interface {
 }
 
 // ProvideConnection provides a sqlx-backed connection from context.
+// Deprecated: use ProvideDB.
 func ProvideConnection(ctx context.Context, config cfg.Config, logger log.Logger, name string) (*sqlx.DB, error) {
-	var (
-		err      error
-		settings *Settings
-	)
-
-	if settings, err = ReadSettings(config, name); err != nil {
+	db, err := ProvideDB(ctx, config, logger, name)
+	if err != nil {
 		return nil, err
 	}
 
-	return ProvideConnectionFromSettings(ctx, logger, name, settings)
+	return unwrapSQLXDB(db.handle)
 }
 
 // NewConnection creates a new sqlx-backed connection.
+// Deprecated: use NewDB.
 func NewConnection(ctx context.Context, config cfg.Config, logger log.Logger, name string) (*sqlx.DB, error) {
-	var (
-		err      error
-		settings *Settings
-	)
-
-	if settings, err = ReadSettings(config, name); err != nil {
+	db, err := NewDB(ctx, config, logger, name)
+	if err != nil {
 		return nil, err
 	}
 
-	return NewConnectionFromSettings(ctx, logger, name, settings)
+	return unwrapSQLXDB(db.handle)
 }
 
 // ProvideConnectionFromSettings provides a sqlx-backed connection from settings.
+// Deprecated: use ProvideDBFromSettings.
 func ProvideConnectionFromSettings(ctx context.Context, logger log.Logger, name string, settings *Settings) (*sqlx.DB, error) {
-	connection, err := provideDBFromSettings(ctx, logger, name, settings)
+	db, err := ProvideDBFromSettings(ctx, logger, name, settings)
 	if err != nil {
 		return nil, err
 	}
 
-	return unwrapSQLXDB(connection)
+	return unwrapSQLXDB(db.handle)
 }
 
 // NewConnectionFromSettings creates a new sqlx-backed connection from settings.
+// Deprecated: use NewDBFromSettings.
 func NewConnectionFromSettings(ctx context.Context, logger log.Logger, name string, settings *Settings) (*sqlx.DB, error) {
-	connection, err := newDBFromSettings(ctx, logger, name, settings)
+	db, err := NewDBFromSettings(ctx, logger, name, settings)
 	if err != nil {
 		return nil, err
 	}
 
-	return unwrapSQLXDB(connection)
+	return unwrapSQLXDB(db.handle)
 }
 
 // NewConnectionWithInterfaces creates a new sqlx-backed connection from settings.
+// Deprecated: use NewDBWithSettings.
 func NewConnectionWithInterfaces(logger log.Logger, settings *Settings) (*sqlx.DB, error) {
-	connection, err := newDBWithInterfaces(logger, settings)
+	db, err := NewDBWithSettings(logger, settings)
 	if err != nil {
 		return nil, err
 	}
 
-	return unwrapSQLXDB(connection)
+	return unwrapSQLXDB(db.handle)
 }
 
 // NewClientWithInterfaces creates a new SQL client with provided interfaces.
 // This is useful for testing or when you want to provide custom implementations.
+// Deprecated: use NewClientWithDB together with WrapDB.
 func NewClientWithInterfaces(logger log.Logger, connection *sqlx.DB, executor exec.Executor, qbConfig *QueryBuilderConfig) *client {
-	return newClientWithDB(logger, newSQLXDBAdapter(connection), executor, qbConfig)
+	return NewClientWithDB(logger, newDB(newSQLXDBAdapter(connection)), executor, qbConfig)
 }
 
 func (t *tx) SqlTx() *sqlx.Tx {

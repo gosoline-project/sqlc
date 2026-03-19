@@ -2,6 +2,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/justtrackio/gosoline/pkg/exec"
@@ -12,6 +13,10 @@ type tx struct {
 	*baseQuerier
 	ctx context.Context
 	tx  dbTx
+}
+
+type sqlTxAccessor interface {
+	SQLTx() *sql.Tx
 }
 
 func newTx(ctx context.Context, logger log.Logger, executor exec.Executor, txx dbTx) Tx {
@@ -44,6 +49,15 @@ func (t *tx) Value(key any) any {
 
 func (t *tx) Q() *QueryBuilder {
 	return &QueryBuilder{client: t}
+}
+
+func (t *tx) SQLTx() *sql.Tx {
+	sqlBacked, ok := t.tx.(sqlTxAccessor)
+	if !ok {
+		return nil
+	}
+
+	return sqlBacked.SQLTx()
 }
 
 func (t *tx) Commit() error {

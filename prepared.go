@@ -78,7 +78,7 @@ func (p *PreparedSelect) Select(ctx context.Context, dest any, args ...any) erro
 //		// ...
 //	}
 func (p *PreparedSelect) Query(ctx context.Context, args ...any) (*Rows, error) {
-	return p.stmt.QueryxContext(ctx, args...)
+	return p.stmt.QueryContext(ctx, args...)
 }
 
 // Close closes the prepared statement and releases associated resources.

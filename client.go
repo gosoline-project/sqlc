@@ -139,6 +139,12 @@ func newClientWithDB(logger log.Logger, connection dbHandle, executor exec.Execu
 	}
 }
 
+// NewClientWithDB creates a new SQL client with a sqlc database handle.
+// This is useful for tests or when you want to provide a custom connection.
+func NewClientWithDB(logger log.Logger, connection *DB, executor exec.Executor, qbConfig *QueryBuilderConfig) *client {
+	return newClientWithDB(logger, connection.handle, executor, qbConfig)
+}
+
 // Qb returns a new QueryBuilder instance for this client.
 // QueryBuilder provides a fluent interface for constructing SQL queries.
 func (c *client) Q() *QueryBuilder {

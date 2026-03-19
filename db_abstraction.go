@@ -108,9 +108,15 @@ func (s *Stmt) GetContext(ctx context.Context, dest any, args ...any) error {
 	return s.stmt.GetContext(ctx, dest, args...)
 }
 
-// Stmt.QueryxContext executes the prepared statement and returns rows.
-func (s *Stmt) QueryxContext(ctx context.Context, args ...any) (*Rows, error) {
+// QueryContext executes the prepared statement and returns rows.
+func (s *Stmt) QueryContext(ctx context.Context, args ...any) (*Rows, error) {
 	return s.stmt.QueryContext(ctx, args...)
+}
+
+// QueryxContext executes the prepared statement and returns rows.
+// Deprecated: use QueryContext.
+func (s *Stmt) QueryxContext(ctx context.Context, args ...any) (*Rows, error) {
+	return s.QueryContext(ctx, args...)
 }
 
 // Stmt.SelectContext executes the prepared statement and scans all rows into dest.

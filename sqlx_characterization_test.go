@@ -9,7 +9,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gosoline-project/sqlc"
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/exec"
 	logmocks "github.com/justtrackio/gosoline/pkg/log/mocks"
 	"github.com/stretchr/testify/assert"
@@ -56,9 +55,7 @@ func newCharacterizationClient(t *testing.T, driverName string) (context.Context
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	sqlxDB := sqlx.NewDb(mockDB, driverName)
-
-	return context.Background(), sqlc.NewClientWithInterfaces(logger, sqlxDB, exec.NewDefaultExecutor(), sqlc.DefaultConfig()), mock
+	return context.Background(), sqlc.NewClientWithDB(logger, sqlc.WrapDB(mockDB, driverName), exec.NewDefaultExecutor(), sqlc.DefaultConfig()), mock
 }
 
 func TestSQLXCharacterizationNamedExecStructTagsAndRepeatedPlaceholder(t *testing.T) {
@@ -582,7 +579,7 @@ func TestSQLXCharacterizationClientPrepareSupportsSelectAndQuery(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, users, 2)
 
-	rows, err := stmt.QueryxContext(ctx, "active")
+	rows, err := stmt.QueryContext(ctx, "active")
 	require.NoError(t, err)
 	defer func() {
 		assert.NoError(t, rows.Close())

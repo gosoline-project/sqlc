@@ -8,7 +8,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gosoline-project/sqlc"
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/exec"
 	logmocks "github.com/justtrackio/gosoline/pkg/log/mocks"
 	"github.com/stretchr/testify/assert"
@@ -42,15 +41,13 @@ func (s *ClientTestSuite) SetupTest() {
 	mockDB, mock, err := sqlmock.New()
 	s.Require().NoError(err)
 
-	// Wrap in sqlx.DB
-	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
 	s.mock = mock
 
 	// Create default config
 	qbConfig := sqlc.DefaultConfig()
 
 	// Create client with default executor
-	s.client = sqlc.NewClientWithInterfaces(logger, sqlxDB, exec.NewDefaultExecutor(), qbConfig)
+	s.client = sqlc.NewClientWithDB(logger, sqlc.WrapDB(mockDB, "sqlmock"), exec.NewDefaultExecutor(), qbConfig)
 }
 
 // TearDownTest runs after each test in the suite
@@ -491,6 +488,19 @@ func (s *ClientTestSuite) TestWithTx_UsesTransactionForQueries() {
 	s.Assert().Equal("John", user.Name)
 }
 
+func (s *ClientTestSuite) TestWithTx_ExposesStdlibTransaction() {
+	s.mock.ExpectBegin()
+	s.mock.ExpectCommit()
+
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		s.Require().NotNil(tx.SQLTx())
+
+		return nil
+	})
+
+	s.Require().NoError(err)
+}
+
 // -----------------------------------------------------------------------------
 // Close Test (standalone - needs separate setup)
 // -----------------------------------------------------------------------------
@@ -501,10 +511,9 @@ func TestClientClose(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
 
-	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
 	qbConfig := sqlc.DefaultConfig()
 
-	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, exec.NewDefaultExecutor(), qbConfig)
+	client := sqlc.NewClientWithDB(logger, sqlc.WrapDB(mockDB, "sqlmock"), exec.NewDefaultExecutor(), qbConfig)
 
 	mock.ExpectClose()
 
@@ -536,7 +545,6 @@ func TestClientWithExecutorRetry(t *testing.T) {
 	mockDB, _, err := sqlmock.New()
 	require.NoError(t, err)
 
-	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
 	qbConfig := sqlc.DefaultConfig()
 
 	t.Run("executor is called for operations", func(t *testing.T) {
@@ -549,7 +557,7 @@ func TestClientWithExecutorRetry(t *testing.T) {
 			},
 		}
 
-		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
+		client := sqlc.NewClientWithDB(logger, sqlc.WrapDB(mockDB, "sqlmock"), executor, qbConfig)
 
 		var user User
 		// This will fail because no mock expectations are set,
@@ -568,7 +576,7 @@ func TestClientWithExecutorRetry(t *testing.T) {
 			},
 		}
 
-		client := sqlc.NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)
+		client := sqlc.NewClientWithDB(logger, sqlc.WrapDB(mockDB, "sqlmock"), executor, qbConfig)
 
 		var user User
 		err := client.Get(context.Background(), &user, "SELECT id, name FROM users WHERE id = ?", 1)

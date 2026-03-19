@@ -995,7 +995,7 @@ func (q *SelectQueryBuilder) Get(ctx context.Context, dest any) error {
 	qb := q
 	if len(q.projections) == 0 {
 		// Only call ForType for struct destinations
-		// For primitive types and maps, let sqlx handle scanning directly
+		// For primitive types and maps, let the row scanner handle scanning directly
 		if elem.Kind() == reflect.Struct {
 			qb = qb.ForType(dest)
 		}

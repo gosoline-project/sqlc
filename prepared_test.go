@@ -8,7 +8,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gosoline-project/sqlc"
 	mocks "github.com/gosoline-project/sqlc/mocks"
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/exec"
 	logmocks "github.com/justtrackio/gosoline/pkg/log/mocks"
 	"github.com/stretchr/testify/assert"
@@ -37,11 +36,10 @@ func (s *PreparedTestSuite) SetupTest() {
 	mockDB, mock, err := sqlmock.New()
 	s.Require().NoError(err)
 
-	sqlxDB := sqlx.NewDb(mockDB, "sqlmock")
 	s.mock = mock
 
 	qbConfig := sqlc.DefaultConfig()
-	s.client = sqlc.NewClientWithInterfaces(logger, sqlxDB, exec.NewDefaultExecutor(), qbConfig)
+	s.client = sqlc.NewClientWithDB(logger, sqlc.WrapDB(mockDB, "sqlmock"), exec.NewDefaultExecutor(), qbConfig)
 }
 
 // TearDownTest runs after each test in the suite.

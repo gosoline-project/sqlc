@@ -162,6 +162,10 @@ func (t *sqlxTxAdapter) SelectContext(ctx context.Context, dest any, query strin
 	return t.tx.SelectContext(ctx, dest, query, args...)
 }
 
+func (t *sqlxTxAdapter) SQLTx() *sql.Tx {
+	return t.tx.Tx
+}
+
 func (t *sqlxTxAdapter) SQLXTx() *sqlx.Tx {
 	return t.tx
 }
