@@ -9,7 +9,7 @@ import (
 )
 
 // DB is a sqlc-owned database handle that preserves the package's query,
-// scan, and named parameter behavior without exposing sqlx types publicly.
+// scan, and named parameter behavior without exposing third-party types publicly.
 type DB struct {
 	handle dbHandle
 }

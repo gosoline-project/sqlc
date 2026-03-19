@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"unicode"
-
-	"github.com/jmoiron/sqlx/reflectx"
 )
 
 type bindType int
@@ -36,7 +34,7 @@ func bindTypeForDriverName(driverName string) bindType {
 	}
 }
 
-func bindNamedMapper(driverName, query string, arg any, mapper *reflectx.Mapper) (bound string, args []any, err error) {
+func bindNamedMapper(driverName, query string, arg any, mapper *structMapper) (bound string, args []any, err error) {
 	if arg == nil {
 		return "", nil, fmt.Errorf("can not bind nil argument")
 	}
@@ -70,7 +68,7 @@ func convertMapStringAny(v any) (map[string]any, bool) {
 	return reflect.ValueOf(v).Convert(mType).Interface().(map[string]any), true
 }
 
-func bindStruct(bindType bindType, query string, arg any, mapper *reflectx.Mapper) (string, []any, error) {
+func bindStruct(bindType bindType, query string, arg any, mapper *structMapper) (string, []any, error) {
 	bound, names, err := compileNamedQuery([]byte(query), bindType)
 	if err != nil {
 		return "", nil, err
@@ -94,7 +92,7 @@ func bindMap(bindType bindType, query string, arg map[string]any) (string, []any
 	return bound, args, err
 }
 
-func bindArray(bindType bindType, query string, arg any, mapper *reflectx.Mapper) (string, []any, error) {
+func bindArray(bindType bindType, query string, arg any, mapper *structMapper) (string, []any, error) {
 	bound, names, err := compileNamedQuery([]byte(query), bindQuestion)
 	if err != nil {
 		return "", nil, err
@@ -127,7 +125,7 @@ func bindArray(bindType bindType, query string, arg any, mapper *reflectx.Mapper
 	return bound, args, nil
 }
 
-func bindAnyArgs(names []string, arg any, mapper *reflectx.Mapper) ([]any, error) {
+func bindAnyArgs(names []string, arg any, mapper *structMapper) ([]any, error) {
 	if mapArg, ok := convertMapStringAny(arg); ok {
 		return bindMapArgs(names, mapArg)
 	}
@@ -150,7 +148,7 @@ func bindMapArgs(names []string, arg map[string]any) ([]any, error) {
 	return args, nil
 }
 
-func bindArgs(names []string, arg any, mapper *reflectx.Mapper) ([]any, error) {
+func bindArgs(names []string, arg any, mapper *structMapper) ([]any, error) {
 	args := make([]any, 0, len(names))
 	v := reflect.ValueOf(arg)
 	for v.Kind() == reflect.Ptr {
@@ -162,7 +160,7 @@ func bindArgs(names []string, arg any, mapper *reflectx.Mapper) ([]any, error) {
 			return fmt.Errorf("could not find name %s in %#v", names[i], arg)
 		}
 
-		args = append(args, reflectx.FieldByIndexesReadOnly(v, traversal).Interface())
+		args = append(args, fieldByIndexesReadOnly(v, traversal).Interface())
 		return nil
 	})
 

@@ -34,6 +34,31 @@ type nestedNamedUser struct {
 	Name  string      `db:"name"`
 }
 
+type embeddedNamedFields struct {
+	ID   int    `db:"id"`
+	Name string `db:"name"`
+}
+
+type embeddedNamedUser struct {
+	embeddedNamedFields
+	Email string `db:"email"`
+}
+
+type taggedEmbeddedNamedUser struct {
+	embeddedNamedFields `db:"user"`
+	Email               string `db:"email"`
+}
+
+type shadowedEmbeddedNamedUser struct {
+	embeddedNamedFields
+	Name string `db:"name"`
+}
+
+type pointerNestedNamedUser struct {
+	Place *nestedPlace `db:"place"`
+	Name  string       `db:"name"`
+}
+
 type nullableInsert struct {
 	ID    int     `db:"id"`
 	Value *string `db:"value"`
@@ -201,6 +226,51 @@ func TestSQLXCharacterizationNamedExecSupportsNestedFieldPaths(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestSQLXCharacterizationNamedExecFlattensAnonymousEmbeddedStructs(t *testing.T) {
+	ctx, client, mock := newCharacterizationClient(t, "sqlmock")
+
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO users (id, name, email) VALUES (?, ?, ?)")).
+		WithArgs(7, "John", "john@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	_, err := client.NamedExec(ctx, "INSERT INTO users (id, name, email) VALUES (:id, :name, :email)", embeddedNamedUser{
+		embeddedNamedFields: embeddedNamedFields{ID: 7, Name: "John"},
+		Email:               "john@example.com",
+	})
+
+	require.NoError(t, err)
+}
+
+func TestSQLXCharacterizationNamedExecSupportsTaggedEmbeddedStructPaths(t *testing.T) {
+	ctx, client, mock := newCharacterizationClient(t, "sqlmock")
+
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO users (id, email) VALUES (?, ?)")).
+		WithArgs(7, "john@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	_, err := client.NamedExec(ctx, "INSERT INTO users (id, email) VALUES (:user.id, :email)", taggedEmbeddedNamedUser{
+		embeddedNamedFields: embeddedNamedFields{ID: 7, Name: "John"},
+		Email:               "john@example.com",
+	})
+
+	require.NoError(t, err)
+}
+
+func TestSQLXCharacterizationNamedExecDirectFieldOverridesEmbeddedField(t *testing.T) {
+	ctx, client, mock := newCharacterizationClient(t, "sqlmock")
+
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO users (name) VALUES (?)")).
+		WithArgs("direct").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	_, err := client.NamedExec(ctx, "INSERT INTO users (name) VALUES (:name)", shadowedEmbeddedNamedUser{
+		embeddedNamedFields: embeddedNamedFields{Name: "embedded"},
+		Name:                "direct",
+	})
+
+	require.NoError(t, err)
+}
+
 func TestSQLXCharacterizationNamedExecBindsNilPointerFieldsAsNil(t *testing.T) {
 	ctx, client, mock := newCharacterizationClient(t, "sqlmock")
 
@@ -331,6 +401,22 @@ func TestSQLXCharacterizationGetPassesThroughPostgresPlaceholders(t *testing.T) 
 
 	require.NoError(t, err)
 	assert.Equal(t, "John", name)
+}
+
+func TestSQLXCharacterizationGetAllocatesNilNestedPointerFields(t *testing.T) {
+	ctx, client, mock := newCharacterizationClient(t, "sqlmock")
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT place_id, name FROM users WHERE id = ?")).
+		WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"place.id", "name"}).AddRow(7, "John"))
+
+	var user pointerNestedNamedUser
+	err := client.Get(ctx, &user, "SELECT place_id, name FROM users WHERE id = ?", 1)
+
+	require.NoError(t, err)
+	require.NotNil(t, user.Place)
+	assert.Equal(t, 7, user.Place.ID)
+	assert.Equal(t, "John", user.Name)
 }
 
 func TestSQLXCharacterizationSelectIntoPrimitiveSlice(t *testing.T) {

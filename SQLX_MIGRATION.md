@@ -1,18 +1,15 @@
 # SQLX Migration
 
-This package now provides sqlc-owned public APIs so downstream code does not need
-to import `github.com/jmoiron/sqlx`.
+The sqlx cutover is complete. This package no longer depends on
+`github.com/jmoiron/sqlx` and exposes sqlc-owned APIs directly.
 
-## Preferred APIs
+## Current APIs
 
-- Replace `ProvideConnection(...)` with `ProvideDB(...)`
-- Replace `NewConnection(...)` with `NewDB(...)`
-- Replace `ProvideConnectionFromSettings(...)` with `ProvideDBFromSettings(...)`
-- Replace `NewConnectionFromSettings(...)` with `NewDBFromSettings(...)`
-- Replace `NewConnectionWithInterfaces(...)` with `NewDBWithSettings(...)`
-- Replace `NewClientWithInterfaces(logger, sqlxDB, executor, qbConfig)` with `NewClientWithDB(logger, sqlc.WrapDB(db, driverName), executor, qbConfig)` when starting from `*sql.DB`
-- Replace `tx.SqlTx()` with `tx.SQLTx()`
-- Replace `stmt.QueryxContext(...)` with `stmt.QueryContext(...)`
+- Use `ProvideDB(...)` and `NewDB(...)` to create database handles
+- Use `ProvideDBFromSettings(...)`, `NewDBFromSettings(...)`, and `NewDBWithSettings(...)` for settings-based construction
+- Use `NewClientWithDB(logger, sqlc.WrapDB(db, driverName), executor, qbConfig)` when starting from `*sql.DB`
+- Use `tx.SQLTx()` for direct transaction access
+- Use `stmt.QueryContext(...)` for prepared queries
 
 ## Direct Handle Access
 
@@ -21,6 +18,5 @@ to import `github.com/jmoiron/sqlx`.
 
 ## Notes
 
-- Deprecated sqlx-based compatibility helpers remain available during the migration window
-- Query, scan, named parameter binding, and placeholder behavior stay unchanged while the internal sqlx-backed adapter remains in place
-- Complete sqlx removal is tracked separately by `sqlc-j7r`
+- Query, scan, named parameter binding, and placeholder behavior are now implemented internally by sqlc
+- Downstream code should rely on sqlc-owned types and `database/sql` handles only

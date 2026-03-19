@@ -6,32 +6,29 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/jmoiron/sqlx/reflectx"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
 type stdlibDBAdapter struct {
 	db         *sql.DB
 	driverName string
-	mapper     *reflectx.Mapper
-	compatDB   *sqlx.DB
+	mapper     *structMapper
 }
 
 type stdlibTxAdapter struct {
 	tx         *sql.Tx
 	driverName string
-	mapper     *reflectx.Mapper
+	mapper     *structMapper
 }
 
 type stdlibStmtAdapter struct {
 	stmt   *sql.Stmt
-	mapper *reflectx.Mapper
+	mapper *structMapper
 }
 
 type stdlibRowsAdapter struct {
 	rows    *sql.Rows
-	mapper  *reflectx.Mapper
+	mapper  *structMapper
 	started bool
 	fields  [][]int
 	values  []any
@@ -146,15 +143,6 @@ func (d *stdlibDBAdapter) SQLDB() *sql.DB {
 	return d.db
 }
 
-func (d *stdlibDBAdapter) SQLXDB() *sqlx.DB {
-	if d.compatDB == nil {
-		d.compatDB = sqlx.NewDb(d.db, d.driverName)
-		d.compatDB.Mapper = d.mapper
-	}
-
-	return d.compatDB
-}
-
 func (d *stdlibDBAdapter) DriverName() string {
 	return d.driverName
 }
@@ -222,10 +210,6 @@ func (t *stdlibTxAdapter) SelectContext(ctx context.Context, dest any, query str
 
 func (t *stdlibTxAdapter) SQLTx() *sql.Tx {
 	return t.tx
-}
-
-func (t *stdlibTxAdapter) SQLXTx() *sqlx.Tx {
-	return &sqlx.Tx{Tx: t.tx, Mapper: t.mapper}
 }
 
 func (s *stdlibStmtAdapter) Close() error {

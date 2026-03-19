@@ -7,13 +7,11 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-
-	"github.com/jmoiron/sqlx/reflectx"
 )
 
 var (
 	scannerInterface = reflect.TypeOf((*sql.Scanner)(nil)).Elem()
-	defaultMapper    = reflectx.NewMapperFunc(dbStructTag, strings.ToLower)
+	defaultMapper    = newStructMapperFunc(dbStructTag, strings.ToLower)
 )
 
 type scanRows interface {
@@ -26,11 +24,11 @@ type scanRows interface {
 
 type mapperCache struct {
 	mu      sync.Mutex
-	mapper  *reflectx.Mapper
+	mapper  *structMapper
 	tagName string
 }
 
-func (c *mapperCache) get(tagName string) *reflectx.Mapper {
+func (c *mapperCache) get(tagName string) *structMapper {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -39,14 +37,14 @@ func (c *mapperCache) get(tagName string) *reflectx.Mapper {
 	}
 
 	if c.mapper == nil || c.tagName != tagName {
-		c.mapper = reflectx.NewMapperFunc(tagName, strings.ToLower)
+		c.mapper = newStructMapperFunc(tagName, strings.ToLower)
 		c.tagName = tagName
 	}
 
 	return c.mapper
 }
 
-func effectiveMapper(mapper *reflectx.Mapper) *reflectx.Mapper {
+func effectiveMapper(mapper *structMapper) *structMapper {
 	if mapper != nil {
 		return mapper
 	}
@@ -54,7 +52,7 @@ func effectiveMapper(mapper *reflectx.Mapper) *reflectx.Mapper {
 	return defaultMapper
 }
 
-func structScan(rows scanRows, dest any, mapper *reflectx.Mapper) error {
+func structScan(rows scanRows, dest any, mapper *structMapper) error {
 	value := reflect.ValueOf(dest)
 	if value.Kind() != reflect.Ptr {
 		return errors.New("must pass a pointer, not a value, to StructScan destination")
@@ -86,17 +84,17 @@ func structScan(rows scanRows, dest any, mapper *reflectx.Mapper) error {
 	return rows.Err()
 }
 
-func getContext(ctxRows *sql.Rows, dest any, mapper *reflectx.Mapper) error {
+func getContext(ctxRows *sql.Rows, dest any, mapper *structMapper) error {
 	row := scanRow{rows: ctxRows, mapper: effectiveMapper(mapper)}
 	return row.scanAny(dest, false)
 }
 
-func selectContext(rows *sql.Rows, dest any, mapper *reflectx.Mapper) error {
+func selectContext(rows *sql.Rows, dest any, mapper *structMapper) error {
 	defer rows.Close()
 	return scanAll(rows, dest, false, mapper)
 }
 
-func scanAll(rows scanRows, dest any, structOnly bool, mapper *reflectx.Mapper) error {
+func scanAll(rows scanRows, dest any, structOnly bool, mapper *structMapper) error {
 	value := reflect.ValueOf(dest)
 	if value.Kind() != reflect.Ptr {
 		return errors.New("must pass a pointer, not a value, to StructScan destination")
@@ -112,7 +110,7 @@ func scanAll(rows scanRows, dest any, structOnly bool, mapper *reflectx.Mapper) 
 	}
 
 	isPtr := sliceType.Elem().Kind() == reflect.Ptr
-	base := reflectx.Deref(sliceType.Elem())
+	base := derefType(sliceType.Elem())
 	scannable := isScannable(base)
 	if structOnly && scannable {
 		return structOnlyError(base)
@@ -175,7 +173,7 @@ func scanAll(rows scanRows, dest any, structOnly bool, mapper *reflectx.Mapper) 
 type scanRow struct {
 	rows   *sql.Rows
 	err    error
-	mapper *reflectx.Mapper
+	mapper *structMapper
 }
 
 func (r *scanRow) Columns() ([]string, error) {
@@ -238,7 +236,7 @@ func (r *scanRow) scanAny(dest any, structOnly bool) error {
 		return errors.New("nil pointer passed to StructScan destination")
 	}
 
-	base := reflectx.Deref(value.Type())
+	base := derefType(value.Type())
 	scannable := isScannable(base)
 	if structOnly && scannable {
 		return structOnlyError(base)
@@ -279,7 +277,7 @@ func isScannable(t reflect.Type) bool {
 		return true
 	}
 
-	return len(defaultMapper.TypeMap(t).Index) == 0
+	return defaultMapper.TypeMap(t).fieldCount == 0
 }
 
 func structOnlyError(t reflect.Type) error {
@@ -296,7 +294,7 @@ func structOnlyError(t reflect.Type) error {
 }
 
 func baseType(t reflect.Type, expected reflect.Kind) (reflect.Type, error) {
-	t = reflectx.Deref(t)
+	t = derefType(t)
 	if t.Kind() != expected {
 		return nil, fmt.Errorf("expected %s but got %s", expected, t.Kind())
 	}
@@ -316,7 +314,7 @@ func fieldsByTraversal(v reflect.Value, traversals [][]int, values []any, ptrs b
 			continue
 		}
 
-		field := reflectx.FieldByIndexes(v, traversal)
+		field := fieldByIndexes(v, traversal)
 		if ptrs {
 			values[i] = field.Addr().Interface()
 		} else {

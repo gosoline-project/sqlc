@@ -168,7 +168,7 @@ func (s *ClientTestSuite) TestExec_DatabaseError() {
 func (s *ClientTestSuite) TestNamedExec_WithStruct() {
 	user := User{Name: "John", Email: "john@example.com"}
 
-	// sqlx binds named params in the order they appear in the SQL: :name, :email
+	// Named params bind in the order they appear in the SQL: :name, :email
 	s.mock.ExpectExec("INSERT INTO users").
 		WithArgs("John", "john@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -187,7 +187,7 @@ func (s *ClientTestSuite) TestNamedExec_WithMap() {
 		"email": "jane@example.com",
 	}
 
-	// sqlx binds named params in the order they appear in the SQL: :name, :email
+	// Named params bind in the order they appear in the SQL: :name, :email
 	s.mock.ExpectExec("INSERT INTO users").
 		WithArgs("Jane", "jane@example.com").
 		WillReturnResult(sqlmock.NewResult(2, 1))
@@ -204,7 +204,7 @@ func (s *ClientTestSuite) TestNamedExec_DatabaseError() {
 	user := User{Name: "John", Email: "john@example.com"}
 	dbErr := errors.New("unique constraint violation")
 
-	// sqlx binds named params in the order they appear in the SQL: :name, :email
+	// Named params bind in the order they appear in the SQL: :name, :email
 	s.mock.ExpectExec("INSERT INTO users").
 		WithArgs("John", "john@example.com").
 		WillReturnError(dbErr)
