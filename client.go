@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/appctx"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/exec"
@@ -54,19 +53,13 @@ type (
 
 	// Result represents the result of an Exec operation (rows affected, last insert ID).
 	Result = sql.Result
-	// Row represents a single row returned from a query.
-	Row = sqlx.Row
-	// Rows represents the result of a Query operation for row-by-row iteration.
-	Rows = sqlx.Rows
-	// Stmt represents a prepared statement.
-	Stmt = sqlx.Stmt
 )
 
 var _ Client = (*client)(nil)
 
 type client struct {
 	*baseQuerier
-	db       *sqlx.DB
+	db       dbHandle
 	qbConfig *QueryBuilderConfig
 }
 
@@ -108,12 +101,12 @@ func NewClient(ctx context.Context, config cfg.Config, logger log.Logger, name s
 // It establishes a database connection and optionally configures retry behavior.
 func NewClientWithSettings(ctx context.Context, config cfg.Config, logger log.Logger, name string, settings *Settings) (*client, error) {
 	var err error
-	var connection *sqlx.DB
+	var connection dbHandle
 	var driver Driver
 
 	executor := exec.NewDefaultExecutor()
 
-	if connection, err = ProvideConnectionFromSettings(ctx, logger, name, settings); err != nil {
+	if connection, err = provideDBFromSettings(ctx, logger, name, settings); err != nil {
 		return nil, fmt.Errorf("can not connect to sql database: %w", err)
 	}
 
@@ -128,19 +121,17 @@ func NewClientWithSettings(ctx context.Context, config cfg.Config, logger log.Lo
 	}
 
 	if !settings.Retry.Enabled {
-		return NewClientWithInterfaces(logger, connection, executor, qbConfig), nil
+		return newClientWithDB(logger, connection, executor, qbConfig), nil
 	}
 
 	if executor, err = NewExecutor(config, logger, name, ExecutorBackoffType(name)); err != nil {
 		return nil, fmt.Errorf("can not create executor for sql client %s: %w", name, err)
 	}
 
-	return NewClientWithInterfaces(logger, connection, executor, qbConfig), nil
+	return newClientWithDB(logger, connection, executor, qbConfig), nil
 }
 
-// NewClientWithInterfaces creates a new SQL client with provided interfaces.
-// This is useful for testing or when you want to provide custom implementations.
-func NewClientWithInterfaces(logger log.Logger, connection *sqlx.DB, executor exec.Executor, qbConfig *QueryBuilderConfig) *client {
+func newClientWithDB(logger log.Logger, connection dbHandle, executor exec.Executor, qbConfig *QueryBuilderConfig) *client {
 	return &client{
 		baseQuerier: newBaseQuerier(logger, executor, connection),
 		db:          connection,
@@ -162,13 +153,13 @@ func (c *client) BeginTx(ctx context.Context, ops ...*sql.TxOptions) (Tx, error)
 	}
 
 	res, err := c.executor.Execute(ctx, func(ctx context.Context) (any, error) {
-		return c.db.BeginTxx(ctx, ops[0])
+		return c.db.BeginTx(ctx, ops[0])
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return newTx(ctx, c.logger, c.executor, res.(*sqlx.Tx)), err
+	return newTx(ctx, c.logger, c.executor, res.(dbTx)), err
 }
 
 // Close closes the database connection and releases any associated resources.

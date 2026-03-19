@@ -2,13 +2,13 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"runtime"
 	"strings"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/coffin"
 	"github.com/justtrackio/gosoline/pkg/funk"
@@ -21,7 +21,7 @@ var tableExcludes = []string{
 
 type LifeCyclePurger struct {
 	logger   log.Logger
-	db       *sqlx.DB
+	db       *sql.DB
 	settings *Settings
 }
 
@@ -38,7 +38,7 @@ func NewLifeCyclePurger(config cfg.Config, logger log.Logger, connectionName str
 
 func NewLifeCyclePurgerWithSettings(logger log.Logger, settings *Settings) (*LifeCyclePurger, error) {
 	var err error
-	var db *sqlx.DB
+	var db *sql.DB
 
 	fkSettings := *settings
 	fkSettings.Parameters = map[string]string{
@@ -48,9 +48,12 @@ func NewLifeCyclePurgerWithSettings(logger log.Logger, settings *Settings) (*Lif
 		fkSettings.Parameters[k] = v
 	}
 
-	if db, err = NewConnectionWithInterfaces(logger, &fkSettings); err != nil {
+	connection, err := newDBWithInterfaces(logger, &fkSettings)
+	if err != nil {
 		return nil, fmt.Errorf("could not connect to database: %w", err)
 	}
+
+	db = connection.SQLDB()
 
 	return &LifeCyclePurger{
 		logger:   logger,

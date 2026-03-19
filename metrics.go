@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/metric"
 	"github.com/justtrackio/gosoline/pkg/uuid"
 )
@@ -49,7 +48,7 @@ func (m *metricDriver) Open(dsn string) (driver.Conn, error) {
 	return m.Driver.Open(dsn)
 }
 
-func publishConnectionMetrics(conn *sqlx.DB) {
+func publishConnectionMetrics(conn *sql.DB) {
 	output := metric.NewWriter()
 
 	go func() {
