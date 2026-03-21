@@ -15,13 +15,6 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// User is a common test struct used across multiple tests
-type User struct {
-	ID    int    `db:"id"`
-	Name  string `db:"name"`
-	Email string `db:"email"`
-}
-
 // ClientTestSuite is the base test suite for client tests
 type ClientTestSuite struct {
 	suite.Suite

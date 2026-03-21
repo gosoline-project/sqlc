@@ -2,7 +2,9 @@ package sqlc_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"regexp"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -153,6 +155,38 @@ func (s *PreparedTestSuite) TestPreparedSelect_Query() {
 	s.Assert().Len(users, 2)
 	s.Assert().Equal("John", users[0].Name)
 	s.Assert().Equal("Jane", users[1].Name)
+}
+
+func (s *PreparedTestSuite) TestPreparedSelect_QueryStructScanFailsForMissingDestinationFields() {
+	preparedSQL := regexp.QuoteMeta("SELECT `id`, `name`, `email` FROM `users` WHERE status = ?")
+	ep := s.mock.ExpectPrepare(preparedSQL)
+	ep.ExpectQuery().
+		WithArgs("active").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "email"}).AddRow(1, "John", "john@example.com"))
+
+	prepared, err := sqlc.From("users").
+		WithClient(s.client).
+		Columns("id", "name", "email").
+		Where("status = ?", "active").
+		Prepare(s.ctx)
+	s.Require().NoError(err)
+	defer func() {
+		s.Assert().NoError(prepared.Close())
+	}()
+
+	rows, err := prepared.Query(s.ctx, "active")
+	s.Require().NoError(err)
+	defer func() {
+		s.Assert().NoError(rows.Close())
+	}()
+
+	s.Require().True(rows.Next())
+
+	var user userWithoutEmail
+	err = rows.StructScan(&user)
+
+	s.Require().Error(err)
+	s.Assert().Contains(err.Error(), "missing destination name email")
 }
 
 // -----------------------------------------------------------------------------
@@ -323,6 +357,81 @@ func (s *PreparedTestSuite) TestPreparedExec_Delete() {
 	rowsAffected, err := result.RowsAffected()
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(5), rowsAffected)
+}
+
+func (s *PreparedTestSuite) TestClientPrepare_ReusesStatementAfterNoRows() {
+	ep := s.mock.ExpectPrepare(regexp.QuoteMeta("SELECT id, name FROM users WHERE id = ?"))
+	ep.ExpectQuery().WithArgs(1).WillReturnError(sql.ErrNoRows)
+	ep.ExpectQuery().WithArgs(2).WillReturnError(sql.ErrNoRows)
+
+	stmt, err := s.client.Prepare(s.ctx, "SELECT id, name FROM users WHERE id = ?")
+	s.Require().NoError(err)
+	defer func() {
+		s.Assert().NoError(stmt.Close())
+	}()
+
+	var user User
+	err = stmt.GetContext(s.ctx, &user, 1)
+	s.Assert().ErrorIs(err, sql.ErrNoRows)
+
+	err = stmt.GetContext(s.ctx, &user, 2)
+	s.Assert().ErrorIs(err, sql.ErrNoRows)
+}
+
+func (s *PreparedTestSuite) TestClientPrepare_SupportsSelectAndQuery() {
+	ep := s.mock.ExpectPrepare(regexp.QuoteMeta("SELECT id, name FROM users WHERE status = ?"))
+	ep.ExpectQuery().WithArgs("active").WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "John").AddRow(2, "Jane"))
+	ep.ExpectQuery().WithArgs("active").WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "John").AddRow(2, "Jane"))
+
+	stmt, err := s.client.Prepare(s.ctx, "SELECT id, name FROM users WHERE status = ?")
+	s.Require().NoError(err)
+	defer func() {
+		s.Assert().NoError(stmt.Close())
+	}()
+
+	var users []User
+	err = stmt.SelectContext(s.ctx, &users, "active")
+	s.Require().NoError(err)
+	s.Require().Len(users, 2)
+
+	rows, err := stmt.QueryContext(s.ctx, "active")
+	s.Require().NoError(err)
+	defer func() {
+		s.Assert().NoError(rows.Close())
+	}()
+
+	count := 0
+	for rows.Next() {
+		var user User
+		s.Require().NoError(rows.StructScan(&user))
+		count++
+	}
+
+	s.Require().NoError(rows.Err())
+	s.Assert().Equal(2, count)
+}
+
+func (s *PreparedTestSuite) TestTxPrepare_SupportsPreparedQueries() {
+	s.mock.ExpectBegin()
+	ep := s.mock.ExpectPrepare(regexp.QuoteMeta("SELECT id, name FROM users WHERE id = ?"))
+	ep.ExpectQuery().WithArgs(1).WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "John"))
+	s.mock.ExpectCommit()
+
+	var user User
+	err := s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		stmt, err := tx.Prepare(s.ctx, "SELECT id, name FROM users WHERE id = ?")
+		if err != nil {
+			return err
+		}
+		defer func() {
+			s.Assert().NoError(stmt.Close())
+		}()
+
+		return stmt.GetContext(s.ctx, &user, 1)
+	})
+
+	s.Require().NoError(err)
+	s.Assert().Equal("John", user.Name)
 }
 
 // -----------------------------------------------------------------------------

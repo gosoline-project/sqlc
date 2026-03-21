@@ -1,7 +1,6 @@
-# SQLX Migration
+# Database API Guide
 
-The sqlx cutover is complete. This package no longer depends on
-`github.com/jmoiron/sqlx` and exposes sqlc-owned APIs directly.
+This package exposes sqlc-owned database APIs directly.
 
 ## Current APIs
 
