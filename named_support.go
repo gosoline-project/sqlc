@@ -68,13 +68,13 @@ func convertMapStringAny(v any) (map[string]any, bool) {
 	return reflect.ValueOf(v).Convert(mType).Interface().(map[string]any), true
 }
 
-func bindStruct(bindType bindType, query string, arg any, mapper *structMapper) (string, []any, error) {
+func bindStruct(bindType bindType, query string, arg any, mapper *structMapper) (bound string, args []any, err error) {
 	bound, names, err := compileNamedQuery([]byte(query), bindType)
 	if err != nil {
 		return "", nil, err
 	}
 
-	args, err := bindAnyArgs(names, arg, mapper)
+	args, err = bindAnyArgs(names, arg, mapper)
 	if err != nil {
 		return "", nil, err
 	}
@@ -82,17 +82,18 @@ func bindStruct(bindType bindType, query string, arg any, mapper *structMapper) 
 	return bound, args, nil
 }
 
-func bindMap(bindType bindType, query string, arg map[string]any) (string, []any, error) {
+func bindMap(bindType bindType, query string, arg map[string]any) (bound string, args []any, err error) {
 	bound, names, err := compileNamedQuery([]byte(query), bindType)
 	if err != nil {
 		return "", nil, err
 	}
 
-	args, err := bindMapArgs(names, arg)
+	args, err = bindMapArgs(names, arg)
+
 	return bound, args, err
 }
 
-func bindArray(bindType bindType, query string, arg any, mapper *structMapper) (string, []any, error) {
+func bindArray(bindType bindType, query string, arg any, mapper *structMapper) (bound string, args []any, err error) {
 	bound, names, err := compileNamedQuery([]byte(query), bindQuestion)
 	if err != nil {
 		return "", nil, err
@@ -104,7 +105,7 @@ func bindArray(bindType bindType, query string, arg any, mapper *structMapper) (
 		return "", nil, fmt.Errorf("length of array is 0: %#v", arg)
 	}
 
-	args := make([]any, 0, len(names)*arrayLen)
+	args = make([]any, 0, len(names)*arrayLen)
 	for i := 0; i < arrayLen; i++ {
 		elementArgs, err := bindAnyArgs(names, arrayValue.Index(i).Interface(), mapper)
 		if err != nil {
@@ -151,7 +152,15 @@ func bindMapArgs(names []string, arg map[string]any) ([]any, error) {
 func bindArgs(names []string, arg any, mapper *structMapper) ([]any, error) {
 	args := make([]any, 0, len(names))
 	v := reflect.ValueOf(arg)
+	if !v.IsValid() {
+		return nil, fmt.Errorf("can not bind nil argument")
+	}
+
 	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil, fmt.Errorf("can not bind nil argument")
+		}
+
 		v = v.Elem()
 	}
 
@@ -161,75 +170,133 @@ func bindArgs(names []string, arg any, mapper *structMapper) ([]any, error) {
 		}
 
 		args = append(args, fieldByIndexesReadOnly(v, traversal).Interface())
+
 		return nil
 	})
 
 	return args, err
 }
 
-func compileNamedQuery(query []byte, bindType bindType) (string, []string, error) {
-	names := make([]string, 0, 10)
+func compileNamedQuery(query []byte, bindType bindType) (bound string, names []string, err error) {
+	names = make([]string, 0, 10)
 	rebound := make([]byte, 0, len(query))
 
 	inName := false
-	last := len(query) - 1
 	currentVar := 1
 	name := make([]byte, 0, 10)
 
 	for i, b := range query {
-		switch {
-		case b == ':':
-			if inName && i > 0 && query[i-1] == ':' {
-				rebound = append(rebound, ':')
-				inName = false
+		if !inName {
+			started := startNamedParam(query, i, b, &rebound)
+			if started {
+				inName = true
+				name = name[:0]
+
 				continue
 			}
 
-			if inName {
-				return "", nil, fmt.Errorf("unexpected `:` while reading named param at %d", i)
-			}
-
-			inName = true
-			name = []byte{}
-		case inName && i > 0 && b == '=' && len(name) == 0:
-			rebound = append(rebound, ':', '=')
-			inName = false
-		case inName && (unicode.IsOneOf(namedBindRunes, rune(b)) || b == '_' || b == '.') && i != last:
-			name = append(name, b)
-		case inName:
-			inName = false
-			if i == last && unicode.IsOneOf(namedBindRunes, rune(b)) {
-				name = append(name, b)
-			}
-
-			names = append(names, string(name))
-			switch bindType {
-			case bindNamed:
-				rebound = append(rebound, ':')
-				rebound = append(rebound, name...)
-			case bindDollar:
-				rebound = append(rebound, '$')
-				rebound = strconv.AppendInt(rebound, int64(currentVar), 10)
-				currentVar++
-			case bindAt:
-				rebound = append(rebound, '@', 'p')
-				rebound = strconv.AppendInt(rebound, int64(currentVar), 10)
-				currentVar++
-			default:
-				rebound = append(rebound, '?')
-			}
-
-			if i != last {
-				rebound = append(rebound, b)
-			} else if !unicode.IsOneOf(namedBindRunes, rune(b)) {
-				rebound = append(rebound, b)
-			}
-		default:
 			rebound = append(rebound, b)
+
+			continue
 		}
+
+		if escapedDoubleColon(query, i, b) {
+			rebound = append(rebound, ':')
+			inName = false
+
+			continue
+		}
+		if b == ':' {
+			return "", nil, fmt.Errorf("unexpected `:` while reading named param at %d", i)
+		}
+
+		keepReading, cancelled := consumeParamPrefix(i, b, name, &rebound)
+		if cancelled {
+			inName = false
+
+			continue
+		}
+		if keepReading && shouldContinueName(query, i, b) {
+			name = append(name, b)
+
+			continue
+		}
+
+		finishNamedParam(query, i, b, bindType, name, &rebound, &names, &currentVar)
+		inName = false
 	}
 
-	return string(rebound), names, nil
+	bound = string(rebound)
+
+	return bound, names, nil
+}
+
+func startNamedParam(query []byte, index int, b byte, rebound *[]byte) bool {
+	return b == ':'
+}
+
+func escapedDoubleColon(query []byte, index int, b byte) bool {
+	return b == ':' && index > 0 && query[index-1] == ':'
+}
+
+func consumeParamPrefix(index int, b byte, name []byte, rebound *[]byte) (keepReading bool, cancelled bool) {
+	if index > 0 && b == '=' && len(name) == 0 {
+		*rebound = append(*rebound, ':', '=')
+
+		return false, true
+	}
+
+	return isNamedParamRune(b), false
+}
+
+func shouldContinueName(query []byte, index int, b byte) bool {
+	return index != len(query)-1 && isNamedParamRune(b)
+}
+
+func finishNamedParam(query []byte, index int, b byte, bindType bindType, name []byte, rebound *[]byte, names *[]string, currentVar *int) {
+	if index == len(query)-1 && unicode.IsOneOf(namedBindRunes, rune(b)) {
+		name = append(name, b)
+	}
+
+	*names = append(*names, string(name))
+	*currentVar = appendBindVar(rebound, bindType, name, *currentVar)
+	appendTrailingByte(query, index, b, rebound)
+}
+
+func appendBindVar(rebound *[]byte, bindType bindType, name []byte, currentVar int) int {
+	switch bindType {
+	case bindNamed:
+		*rebound = append(*rebound, ':')
+		*rebound = append(*rebound, name...)
+	case bindDollar:
+		*rebound = append(*rebound, '$')
+		*rebound = strconv.AppendInt(*rebound, int64(currentVar), 10)
+		currentVar++
+	case bindAt:
+		*rebound = append(*rebound, '@', 'p')
+		*rebound = strconv.AppendInt(*rebound, int64(currentVar), 10)
+		currentVar++
+	default:
+		*rebound = append(*rebound, '?')
+	}
+
+	return currentVar
+}
+
+func appendTrailingByte(query []byte, index int, b byte, rebound *[]byte) {
+	if index != len(query)-1 {
+		*rebound = append(*rebound, b)
+
+		return
+	}
+
+	if !unicode.IsOneOf(namedBindRunes, rune(b)) {
+		*rebound = append(*rebound, b)
+	}
+}
+
+func isNamedParamRune(b byte) bool {
+	return unicode.IsOneOf(namedBindRunes, rune(b)) || b == '_' || b == '.'
 }
 
 func fixBound(bound string, loop int) string {

@@ -61,7 +61,10 @@ func newStdlibDBAdapterWithSettings(logger log.Logger, settings *Settings) (*std
 	}
 
 	if err = db.Ping(); err != nil {
-		_ = db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("can not close failed connection: %w", closeErr)
+		}
+
 		return nil, fmt.Errorf("can not connect: %w", err)
 	}
 

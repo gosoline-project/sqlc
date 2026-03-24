@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"sync"
 )
 
 var (
@@ -22,28 +21,6 @@ type scanRows interface {
 	Scan(dest ...any) error
 }
 
-type mapperCache struct {
-	mu      sync.Mutex
-	mapper  *structMapper
-	tagName string
-}
-
-func (c *mapperCache) get(tagName string) *structMapper {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if tagName == "" {
-		return defaultMapper
-	}
-
-	if c.mapper == nil || c.tagName != tagName {
-		c.mapper = newStructMapperFunc(tagName, strings.ToLower)
-		c.tagName = tagName
-	}
-
-	return c.mapper
-}
-
 func effectiveMapper(mapper *structMapper) *structMapper {
 	if mapper != nil {
 		return mapper
@@ -52,122 +29,135 @@ func effectiveMapper(mapper *structMapper) *structMapper {
 	return defaultMapper
 }
 
-func structScan(rows scanRows, dest any, mapper *structMapper) error {
-	value := reflect.ValueOf(dest)
-	if value.Kind() != reflect.Ptr {
-		return errors.New("must pass a pointer, not a value, to StructScan destination")
-	}
-	if value.IsNil() {
-		return errors.New("nil pointer passed to StructScan destination")
+func closeOnReturn(err error, closeFn func() error) error {
+	if closeErr := closeFn(); closeErr != nil && err == nil {
+		return closeErr
 	}
 
-	value = value.Elem()
-	columns, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-
-	fields := effectiveMapper(mapper).TraversalsByName(value.Type(), columns)
-	if index, missingErr := missingFields(fields); missingErr != nil {
-		return fmt.Errorf("missing destination name %s in %T", columns[index], dest)
-	}
-
-	values := make([]any, len(columns))
-	if err = fieldsByTraversal(value, fields, values, true); err != nil {
-		return err
-	}
-
-	if err = rows.Scan(values...); err != nil {
-		return err
-	}
-
-	return rows.Err()
+	return err
 }
 
 func getContext(ctxRows *sql.Rows, dest any, mapper *structMapper) error {
 	row := scanRow{rows: ctxRows, mapper: effectiveMapper(mapper)}
+
 	return row.scanAny(dest, false)
 }
 
-func selectContext(rows *sql.Rows, dest any, mapper *structMapper) error {
-	defer rows.Close()
+func selectContext(rows *sql.Rows, dest any, mapper *structMapper) (err error) {
+	defer func() {
+		err = closeOnReturn(err, rows.Close)
+	}()
+
 	return scanAll(rows, dest, false, mapper)
 }
 
 func scanAll(rows scanRows, dest any, structOnly bool, mapper *structMapper) error {
+	config, err := scanAllConfig(rows, dest, structOnly)
+	if err != nil {
+		return err
+	}
+
+	if config.scannable {
+		return scanAllScannable(rows, config.direct, config.base, config.isPtr)
+	}
+
+	return scanAllStructs(rows, dest, config, mapper)
+}
+
+type scanAllSetup struct {
+	direct    reflect.Value
+	base      reflect.Type
+	isPtr     bool
+	scannable bool
+	columns   []string
+}
+
+func scanAllConfig(rows scanRows, dest any, structOnly bool) (setup scanAllSetup, err error) {
 	value := reflect.ValueOf(dest)
 	if value.Kind() != reflect.Ptr {
-		return errors.New("must pass a pointer, not a value, to StructScan destination")
+		err = errors.New("must pass a pointer, not a value, to StructScan destination")
+
+		return
 	}
 	if value.IsNil() {
-		return errors.New("nil pointer passed to StructScan destination")
+		err = errors.New("nil pointer passed to StructScan destination")
+
+		return
 	}
 
-	direct := reflect.Indirect(value)
+	setup.direct = reflect.Indirect(value)
 	sliceType, err := baseType(value.Type(), reflect.Slice)
 	if err != nil {
-		return err
+		return setup, err
 	}
 
-	isPtr := sliceType.Elem().Kind() == reflect.Ptr
-	base := derefType(sliceType.Elem())
-	scannable := isScannable(base)
-	if structOnly && scannable {
-		return structOnlyError(base)
+	setup.isPtr = sliceType.Elem().Kind() == reflect.Ptr
+	setup.base = derefType(sliceType.Elem())
+	setup.scannable = isScannable(setup.base)
+	if structOnly && setup.scannable {
+		err = structOnlyError(setup.base)
+
+		return
 	}
 
-	columns, err := rows.Columns()
+	setup.columns, err = rows.Columns()
 	if err != nil {
-		return err
+		return setup, err
 	}
 
-	if scannable && len(columns) > 1 {
-		return fmt.Errorf("non-struct dest type %s with >1 columns (%d)", base.Kind(), len(columns))
+	if setup.scannable && len(setup.columns) > 1 {
+		err = fmt.Errorf("non-struct dest type %s with >1 columns (%d)", setup.base.Kind(), len(setup.columns))
 	}
 
-	if !scannable {
-		fields := effectiveMapper(mapper).TraversalsByName(base, columns)
-		if index, missingErr := missingFields(fields); missingErr != nil {
-			return fmt.Errorf("missing destination name %s in %T", columns[index], dest)
-		}
+	return
+}
 
-		values := make([]any, len(columns))
-		for rows.Next() {
-			itemPtr := reflect.New(base)
-			item := reflect.Indirect(itemPtr)
-
-			if err = fieldsByTraversal(item, fields, values, true); err != nil {
-				return err
-			}
-
-			if err = rows.Scan(values...); err != nil {
-				return err
-			}
-
-			if isPtr {
-				direct.Set(reflect.Append(direct, itemPtr))
-			} else {
-				direct.Set(reflect.Append(direct, item))
-			}
-		}
-
-		return rows.Err()
+func scanAllStructs(rows scanRows, dest any, setup scanAllSetup, mapper *structMapper) error {
+	fields := effectiveMapper(mapper).TraversalsByName(setup.base, setup.columns)
+	if index, missingErr := missingFields(fields); missingErr != nil {
+		return fmt.Errorf("missing destination name %s in %T", setup.columns[index], dest)
 	}
 
+	values := make([]any, len(setup.columns))
 	for rows.Next() {
-		itemPtr := reflect.New(base)
-		if err = rows.Scan(itemPtr.Interface()); err != nil {
+		itemPtr := reflect.New(setup.base)
+		item := reflect.Indirect(itemPtr)
+
+		if err := fieldsByTraversal(item, fields, values, true); err != nil {
 			return err
 		}
 
-		if isPtr {
-			direct.Set(reflect.Append(direct, itemPtr))
-		} else {
-			direct.Set(reflect.Append(direct, reflect.Indirect(itemPtr)))
+		if err := rows.Scan(values...); err != nil {
+			return err
 		}
+
+		appendScanValue(setup.direct, itemPtr, item, setup.isPtr)
 	}
 
 	return rows.Err()
+}
+
+func scanAllScannable(rows scanRows, direct reflect.Value, base reflect.Type, isPtr bool) error {
+	for rows.Next() {
+		itemPtr := reflect.New(base)
+		if err := rows.Scan(itemPtr.Interface()); err != nil {
+			return err
+		}
+
+		appendScanValue(direct, itemPtr, reflect.Indirect(itemPtr), isPtr)
+	}
+
+	return rows.Err()
+}
+
+func appendScanValue(dest reflect.Value, itemPtr reflect.Value, item reflect.Value, isPtr bool) {
+	if isPtr {
+		dest.Set(reflect.Append(dest, itemPtr))
+
+		return
+	}
+
+	dest.Set(reflect.Append(dest, item))
 }
 
 type scanRow struct {
@@ -188,12 +178,15 @@ func (r *scanRow) Err() error {
 	return r.err
 }
 
-func (r *scanRow) Scan(dest ...any) error {
+func (r *scanRow) Scan(dest ...any) (err error) {
 	if r.err != nil {
 		return r.err
 	}
 
-	defer r.rows.Close()
+	defer func() {
+		err = closeOnReturn(err, r.rows.Close)
+	}()
+
 	for _, destination := range dest {
 		if _, ok := destination.(*sql.RawBytes); ok {
 			return errors.New("sql: RawBytes isn't allowed on Row.Scan")
@@ -208,12 +201,8 @@ func (r *scanRow) Scan(dest ...any) error {
 		return sql.ErrNoRows
 	}
 
-	if err := r.rows.Scan(dest...); err != nil {
-		return err
-	}
-
-	if err := r.rows.Close(); err != nil {
-		return err
+	if scanErr := r.rows.Scan(dest...); scanErr != nil {
+		return scanErr
 	}
 
 	return nil
@@ -225,6 +214,7 @@ func (r *scanRow) scanAny(dest any, structOnly bool) error {
 	}
 	if r.rows == nil {
 		r.err = sql.ErrNoRows
+
 		return r.err
 	}
 
@@ -261,7 +251,7 @@ func (r *scanRow) scanAny(dest any, structOnly bool) error {
 	}
 
 	values := make([]any, len(columns))
-	if err = fieldsByTraversal(value, fields, values, true); err != nil {
+	if err := fieldsByTraversal(value, fields, values, true); err != nil {
 		return err
 	}
 
@@ -269,7 +259,7 @@ func (r *scanRow) scanAny(dest any, structOnly bool) error {
 }
 
 func isScannable(t reflect.Type) bool {
-	if reflect.PtrTo(t).Implements(scannerInterface) {
+	if reflect.PointerTo(t).Implements(scannerInterface) {
 		return true
 	}
 
@@ -282,7 +272,7 @@ func isScannable(t reflect.Type) bool {
 
 func structOnlyError(t reflect.Type) error {
 	isStruct := t.Kind() == reflect.Struct
-	isScanner := reflect.PtrTo(t).Implements(scannerInterface)
+	isScanner := reflect.PointerTo(t).Implements(scannerInterface)
 	if !isStruct {
 		return fmt.Errorf("expected %s but got %s", reflect.Struct, t.Kind())
 	}
@@ -311,6 +301,7 @@ func fieldsByTraversal(v reflect.Value, traversals [][]int, values []any, ptrs b
 	for i, traversal := range traversals {
 		if len(traversal) == 0 {
 			values[i] = new(any)
+
 			continue
 		}
 

@@ -115,6 +115,7 @@ func (s *Stmt) QueryContext(ctx context.Context, args ...any) (*Rows, error) {
 }
 
 // QueryxContext executes the prepared statement and returns rows.
+//
 // Deprecated: use QueryContext.
 func (s *Stmt) QueryxContext(ctx context.Context, args ...any) (*Rows, error) {
 	return s.QueryContext(ctx, args...)

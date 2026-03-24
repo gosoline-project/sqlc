@@ -58,17 +58,18 @@ func (m *structMapper) TypeMap(t reflect.Type) *structMap {
 }
 
 func (m *structMapper) TraversalsByName(t reflect.Type, names []string) [][]int {
+	t = derefType(t)
+	tm := m.TypeMap(t)
 	traversals := make([][]int, 0, len(names))
 
-	_ = m.TraversalsByNameFunc(t, names, func(_ int, traversal []int) error {
-		if traversal == nil {
-			traversals = append(traversals, []int{})
-		} else {
+	for _, name := range names {
+		traversal, ok := tm.names[name]
+		if ok {
 			traversals = append(traversals, traversal)
+		} else {
+			traversals = append(traversals, []int{})
 		}
-
-		return nil
-	})
+	}
 
 	return traversals
 }
@@ -128,79 +129,127 @@ func fieldByIndexesReadOnly(v reflect.Value, indexes []int) reflect.Value {
 }
 
 func buildStructMap(t reflect.Type, tagName string, mapFunc func(string) string) *structMap {
-	fields := make([]*mappedField, 0)
-	queue := []mappingQueueItem{{typ: derefType(t)}}
+	fields := collectMappedFields(derefType(t), tagName, mapFunc)
 
-queueLoop:
+	return newTypeMap(fields)
+}
+
+func collectMappedFields(root reflect.Type, tagName string, mapFunc func(string) string) []*mappedField {
+	fields := make([]*mappedField, 0)
+	queue := []mappingQueueItem{{typ: root}}
+
 	for len(queue) > 0 {
 		item := queue[0]
 		queue = queue[1:]
 
-		for parent := item.field; parent != nil; parent = parent.parent {
-			if item.field != nil && parent != item.field && item.field.fieldType == parent.fieldType {
-				continue queueLoop
-			}
-		}
-
-		if item.typ.Kind() != reflect.Struct {
+		if shouldSkipMappingItem(item) {
 			continue
 		}
 
-		for pos := 0; pos < item.typ.NumField(); pos++ {
-			field := item.typ.Field(pos)
-			tagValue, name := parseMappedName(field, tagName, mapFunc)
-			if name == "-" {
-				continue
-			}
+		mapped, nested := mapFieldsForType(item, tagName, mapFunc)
+		fields = append(fields, mapped...)
+		queue = append(queue, nested...)
+	}
 
-			if len(field.PkgPath) != 0 && !field.Anonymous {
-				continue
-			}
+	return fields
+}
 
-			mapped := &mappedField{
-				fieldType: field.Type,
-				index:     appendIndex(nil, pos),
-				name:      name,
-				parent:    item.field,
-			}
-			if item.field != nil {
-				mapped.index = appendIndex(item.field.index, pos)
-			}
+func shouldSkipMappingItem(item mappingQueueItem) bool {
+	if item.typ.Kind() != reflect.Struct {
+		return true
+	}
 
-			if item.parentPath == "" {
-				mapped.path = mapped.name
-			} else {
-				mapped.path = item.parentPath + "." + mapped.name
-			}
+	return hasRecursiveMapping(item)
+}
 
-			fields = append(fields, mapped)
+func hasRecursiveMapping(item mappingQueueItem) bool {
+	if item.field == nil {
+		return false
+	}
 
-			fieldType := derefType(field.Type)
-			if field.Anonymous {
-				parentPath := item.parentPath
-				if tagValue != "" {
-					parentPath = mapped.path
-				}
-
-				mapped.embedded = true
-				queue = append(queue, mappingQueueItem{
-					typ:        fieldType,
-					field:      mapped,
-					parentPath: parentPath,
-				})
-				continue
-			}
-
-			if fieldType.Kind() == reflect.Struct {
-				queue = append(queue, mappingQueueItem{
-					typ:        fieldType,
-					field:      mapped,
-					parentPath: mapped.path,
-				})
-			}
+	for parent := item.field.parent; parent != nil; parent = parent.parent {
+		if item.field.fieldType == parent.fieldType {
+			return true
 		}
 	}
 
+	return false
+}
+
+func mapFieldsForType(item mappingQueueItem, tagName string, mapFunc func(string) string) (fields []*mappedField, nested []mappingQueueItem) {
+	fields = make([]*mappedField, 0, item.typ.NumField())
+	nested = make([]mappingQueueItem, 0, item.typ.NumField())
+
+	for pos := 0; pos < item.typ.NumField(); pos++ {
+		field := item.typ.Field(pos)
+		tagValue, name := parseMappedName(field, tagName, mapFunc)
+		if shouldSkipField(field, name) {
+			continue
+		}
+
+		mapped := newMappedField(item, field, pos, name)
+		fields = append(fields, mapped)
+		nested = append(nested, nestedMappingItems(item.parentPath, field, tagValue, mapped)...)
+	}
+
+	return fields, nested
+}
+
+func shouldSkipField(field reflect.StructField, name string) bool {
+	if name == "-" {
+		return true
+	}
+
+	return field.PkgPath != "" && !field.Anonymous
+}
+
+func newMappedField(item mappingQueueItem, field reflect.StructField, pos int, name string) *mappedField {
+	mapped := &mappedField{
+		fieldType: field.Type,
+		index:     appendIndex(nil, pos),
+		name:      name,
+		parent:    item.field,
+	}
+	if item.field != nil {
+		mapped.index = appendIndex(item.field.index, pos)
+	}
+
+	if item.parentPath == "" {
+		mapped.path = mapped.name
+	} else {
+		mapped.path = item.parentPath + "." + mapped.name
+	}
+
+	return mapped
+}
+
+func nestedMappingItems(parentPath string, field reflect.StructField, tagValue string, mapped *mappedField) []mappingQueueItem {
+	fieldType := derefType(field.Type)
+	if field.Anonymous {
+		mapped.embedded = true
+		if tagValue != "" {
+			parentPath = mapped.path
+		}
+
+		return []mappingQueueItem{{
+			typ:        fieldType,
+			field:      mapped,
+			parentPath: parentPath,
+		}}
+	}
+
+	if fieldType.Kind() != reflect.Struct {
+		return nil
+	}
+
+	return []mappingQueueItem{{
+		typ:        fieldType,
+		field:      mapped,
+		parentPath: mapped.path,
+	}}
+}
+
+func newTypeMap(fields []*mappedField) *structMap {
 	paths := make(map[string]*mappedField)
 	names := make(map[string][]int)
 
