@@ -247,6 +247,17 @@ func (s *stdlibStmtAdapter) SelectContext(ctx context.Context, dest any, args ..
 	return selectContext(rows, dest, s.mapper)
 }
 
+func (s *stdlibStmtAdapter) WithTx(_ context.Context, tx *sql.Tx) preparedStatement {
+	if tx == nil {
+		return s
+	}
+
+	return &stdlibStmtAdapter{
+		stmt:   tx.Stmt(s.stmt),
+		mapper: s.mapper,
+	}
+}
+
 func (r *stdlibRowsAdapter) Close() error {
 	return r.rows.Close()
 }

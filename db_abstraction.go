@@ -43,6 +43,7 @@ type preparedStatement interface {
 	GetContext(ctx context.Context, dest any, args ...any) error
 	QueryContext(ctx context.Context, args ...any) (*Rows, error)
 	SelectContext(ctx context.Context, dest any, args ...any) error
+	WithTx(ctx context.Context, tx *sql.Tx) preparedStatement
 }
 
 // Rows represents the result of a Query operation for row-by-row iteration.
@@ -122,4 +123,15 @@ func (s *Stmt) QueryxContext(ctx context.Context, args ...any) (*Rows, error) {
 // Stmt.SelectContext executes the prepared statement and scans all rows into dest.
 func (s *Stmt) SelectContext(ctx context.Context, dest any, args ...any) error {
 	return s.stmt.SelectContext(ctx, dest, args...)
+}
+
+// Stmt.WithTx binds the prepared statement to the provided transaction.
+// Statements prepared on the shared client can be reused safely inside a
+// transaction by creating a transaction-scoped wrapper around the same SQL.
+func (s *Stmt) WithTx(ctx context.Context, tx *sql.Tx) *Stmt {
+	if tx == nil {
+		return s
+	}
+
+	return newStmt(s.stmt.WithTx(ctx, tx))
 }
