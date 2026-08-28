@@ -114,8 +114,8 @@ func (p LifeCyclePurger) Purge(ctx context.Context) (err error) {
 					sqls = append(sqls, fmt.Sprintf("TRUNCATE TABLE %s;", table))
 				}
 
-				if _, err = p.db.ExecContext(ctx, strings.Join(sqls, " ")); err != nil {
-					return fmt.Errorf("could not truncate tables: %w", err)
+				if _, execErr := p.db.ExecContext(ctx, strings.Join(sqls, " ")); execErr != nil {
+					return fmt.Errorf("could not truncate tables: %w", execErr)
 				}
 
 				return nil
