@@ -5,12 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
-	"runtime"
 	"strings"
 
 	"github.com/justtrackio/gosoline/pkg/cfg"
-	"github.com/justtrackio/gosoline/pkg/coffin"
 	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
@@ -101,32 +98,13 @@ func (p LifeCyclePurger) Purge(ctx context.Context) (err error) {
 		return nil
 	}
 
-	chunks := funk.Chunk(tables, int(math.Ceil(float64(len(tables))/float64(runtime.NumCPU()))))
+	var sqls []string
+	for _, table := range tables {
+		sqls = append(sqls, fmt.Sprintf("TRUNCATE TABLE %s;", table))
+	}
 
-	cfn := coffin.New()
-	cfn.GoWithContext(ctx, func(ctx context.Context) error {
-		for _, chunk := range chunks {
-			cfn.GoWithContext(ctx, func(ctx context.Context) error {
-				var table string
-				var sqls []string
-
-				for _, table = range chunk {
-					sqls = append(sqls, fmt.Sprintf("TRUNCATE TABLE %s;", table))
-				}
-
-				if _, err = p.db.ExecContext(ctx, strings.Join(sqls, " ")); err != nil {
-					return fmt.Errorf("could not truncate tables: %w", err)
-				}
-
-				return nil
-			})
-		}
-
-		return nil
-	})
-
-	if err = cfn.Wait(); err != nil {
-		return fmt.Errorf("error while truncating tables: %w", err)
+	if _, execErr := p.db.ExecContext(ctx, strings.Join(sqls, " ")); execErr != nil {
+		return fmt.Errorf("could not truncate tables: %w", execErr)
 	}
 
 	return nil
