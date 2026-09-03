@@ -70,12 +70,13 @@ func TestSelectWithLimitOffset(t *testing.T) {
 		Where("status = ?", "active").
 		OrderBy("created_at DESC").
 		Limit(10).
-		Offset(20)
+		Offset(20).
+		ForUpdate()
 
 	sql, params, err := q.ToSql()
 	require.NoError(t, err)
 
-	assert.Equal(t, "SELECT `id`, `name` FROM `users` WHERE status = ? ORDER BY `created_at` DESC LIMIT ? OFFSET ?", sql)
+	assert.Equal(t, "SELECT `id`, `name` FROM `users` WHERE status = ? ORDER BY `created_at` DESC LIMIT ? OFFSET ? FOR UPDATE", sql)
 	assert.Len(t, params, 3)
 	assert.Equal(t, "active", params[0])
 	assert.Equal(t, 10, params[1])
