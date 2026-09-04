@@ -5,12 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
-	"runtime"
 	"strings"
 
 	"github.com/justtrackio/gosoline/pkg/cfg"
-	"github.com/justtrackio/gosoline/pkg/coffin"
 	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
@@ -37,27 +34,14 @@ func NewLifeCyclePurger(config cfg.Config, logger log.Logger, connectionName str
 }
 
 func NewLifeCyclePurgerWithSettings(logger log.Logger, settings *Settings) (*LifeCyclePurger, error) {
-	var err error
-	var db *sql.DB
-
-	fkSettings := *settings
-	fkSettings.Parameters = map[string]string{
-		"FOREIGN_KEY_CHECKS": "0",
-	}
-	for k, v := range settings.Parameters {
-		fkSettings.Parameters[k] = v
-	}
-
-	connection, err := newDBWithInterfaces(logger, &fkSettings)
+	connection, err := newDBWithInterfaces(logger, settings)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to database: %w", err)
 	}
 
-	db = connection.SQLDB()
-
 	return &LifeCyclePurger{
 		logger:   logger,
-		db:       db,
+		db:       connection.SQLDB(),
 		settings: settings,
 	}, nil
 }
@@ -97,36 +81,30 @@ func (p LifeCyclePurger) Purge(ctx context.Context) (err error) {
 		return !funk.Contains(tableExcludes, s)
 	})
 
-	if len(tables) == 0 {
-		return nil
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("could not start purge transaction: %w", err)
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			err = errors.Join(err, fmt.Errorf("could not roll back purge transaction: %w", rollbackErr))
+		}
+	}()
+
+	statements := make([]string, 0, len(tables)+2)
+	statements = append(statements, "SET FOREIGN_KEY_CHECKS = 0;")
+	for _, table := range tables {
+		quotedTable := strings.ReplaceAll(table, "`", "``")
+		statements = append(statements, fmt.Sprintf("TRUNCATE TABLE `%s`;", quotedTable))
+	}
+	statements = append(statements, "SET FOREIGN_KEY_CHECKS = 1;")
+
+	if _, err = tx.ExecContext(ctx, strings.Join(statements, " ")); err != nil {
+		return fmt.Errorf("could not truncate tables: %w", err)
 	}
 
-	chunks := funk.Chunk(tables, int(math.Ceil(float64(len(tables))/float64(runtime.NumCPU()))))
-
-	cfn := coffin.New()
-	cfn.GoWithContext(ctx, func(ctx context.Context) error {
-		for _, chunk := range chunks {
-			cfn.GoWithContext(ctx, func(ctx context.Context) error {
-				var table string
-				var sqls []string
-
-				for _, table = range chunk {
-					sqls = append(sqls, fmt.Sprintf("TRUNCATE TABLE %s;", table))
-				}
-
-				if _, err = p.db.ExecContext(ctx, strings.Join(sqls, " ")); err != nil {
-					return fmt.Errorf("could not truncate tables: %w", err)
-				}
-
-				return nil
-			})
-		}
-
-		return nil
-	})
-
-	if err = cfn.Wait(); err != nil {
-		return fmt.Errorf("error while truncating tables: %w", err)
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("could not commit purge transaction: %w", err)
 	}
 
 	return nil
