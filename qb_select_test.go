@@ -82,6 +82,55 @@ func TestSelectWithLimitOffset(t *testing.T) {
 	assert.Equal(t, 20, params[2])
 }
 
+func TestSelectForUpdate(t *testing.T) {
+	q := sqlc.From("users").
+		Columns("id").
+		Where("status = ?", "active").
+		ForUpdate()
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id` FROM `users` WHERE status = ? FOR UPDATE", sql)
+	assert.Len(t, params, 1)
+	assert.Equal(t, "active", params[0])
+}
+
+func TestSelectForUpdateIsLastClause(t *testing.T) {
+	q := sqlc.From("users").
+		Columns("id").
+		Where("status = ?", "active").
+		GroupBy("country").
+		Having("COUNT(*) > ?", 1).
+		OrderBy("created_at DESC").
+		Limit(10).
+		Offset(20).
+		ForUpdate()
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id` FROM `users` WHERE status = ? GROUP BY `country` HAVING COUNT(*) > ? ORDER BY `created_at` DESC LIMIT ? OFFSET ? FOR UPDATE", sql)
+	assert.Len(t, params, 4)
+	assert.Equal(t, "active", params[0])
+	assert.Equal(t, 1, params[1])
+	assert.Equal(t, 10, params[2])
+	assert.Equal(t, 20, params[3])
+}
+
+func TestSelectForUpdateKeepsBuilderImmutable(t *testing.T) {
+	base := sqlc.From("users").Columns("id")
+	locked := base.ForUpdate()
+
+	baseSql, _, err := base.ToSql()
+	require.NoError(t, err)
+	lockedSql, _, err := locked.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id` FROM `users`", baseSql)
+	assert.Equal(t, "SELECT `id` FROM `users` FOR UPDATE", lockedSql)
+}
+
 func TestSelectDistinct(t *testing.T) {
 	q := sqlc.From("users").
 		Columns("country").

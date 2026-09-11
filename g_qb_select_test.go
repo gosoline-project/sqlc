@@ -181,3 +181,19 @@ func TestGenericSelectWithExpressions(t *testing.T) {
 	assert.Len(t, params, 1)
 	assert.Equal(t, 18, params[0])
 }
+
+func TestGenericSelectForUpdate(t *testing.T) {
+	q := sqlc.FromG[TestUser]("users").
+		Columns("id").
+		Where("status = ?", "active").
+		Limit(10).
+		ForUpdate()
+
+	sql, params, err := q.ToSql()
+	require.NoError(t, err)
+
+	assert.Equal(t, "SELECT `id` FROM `users` WHERE status = ? LIMIT ? FOR UPDATE", sql)
+	assert.Len(t, params, 2)
+	assert.Equal(t, "active", params[0])
+	assert.Equal(t, 10, params[1])
+}

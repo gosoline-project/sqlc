@@ -46,6 +46,7 @@ type SelectQueryBuilder struct {
 	sqlerOrderBy    *SqlerOrderBy
 	limitValue      *int
 	offsetValue     *int
+	forUpdate       bool
 	err             error
 }
 
@@ -196,6 +197,7 @@ func (q *SelectQueryBuilder) copyQuery() *SelectQueryBuilder {
 		sqlerGroupBy:    newSqlerGroupBy,
 		sqlerHaving:     newSqlerHaving,
 		sqlerOrderBy:    newSqlerOrderBy,
+		forUpdate:       q.forUpdate,
 		err:             q.err,
 	}
 	if q.limitValue != nil {
@@ -770,6 +772,15 @@ func (q *SelectQueryBuilder) Offset(offset int) *SelectQueryBuilder {
 	return newQuery
 }
 
+// ForUpdate locks the selected rows until the current transaction ends.
+// Returns a new query builder with the FOR UPDATE clause enabled.
+func (q *SelectQueryBuilder) ForUpdate() *SelectQueryBuilder {
+	newQuery := q.copyQuery()
+	newQuery.forUpdate = true
+
+	return newQuery
+}
+
 func (q *SelectQueryBuilder) writeProjections(sqlBuilder *strings.Builder) (params []any) {
 	if len(q.projections) == 0 {
 		sqlBuilder.WriteString("*")
@@ -893,6 +904,10 @@ func (q *SelectQueryBuilder) ToSql() (query string, params []any, err error) {
 	if q.offsetValue != nil {
 		_, _ = fmt.Fprintf(&sqlBuilder, " OFFSET %s", q.config.PlaceholderFormat(paramIndex))
 		params = append(params, *q.offsetValue)
+	}
+
+	if q.forUpdate {
+		sqlBuilder.WriteString(" FOR UPDATE")
 	}
 
 	return sqlBuilder.String(), params, nil

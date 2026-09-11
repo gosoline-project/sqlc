@@ -434,6 +434,14 @@ func (q *SelectQueryBuilderG[T]) Offset(offset int) *SelectQueryBuilderG[T] {
 	}
 }
 
+// ForUpdate locks the selected rows until the current transaction ends.
+// Returns a new query builder with the FOR UPDATE clause enabled.
+func (q *SelectQueryBuilderG[T]) ForUpdate() *SelectQueryBuilderG[T] {
+	return &SelectQueryBuilderG[T]{
+		qb: q.qb.ForUpdate(),
+	}
+}
+
 // ToSql generates the final SQL query string and parameter list.
 // Returns the SQL string, parameters slice, and any error encountered during building.
 // This method should be called when you need the raw SQL for manual execution.
