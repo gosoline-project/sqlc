@@ -21,7 +21,7 @@ type metricDriver struct {
 }
 
 func newMetricDriver(driver driver.Driver) string {
-	mw := metric.NewWriter()
+	mw := metric.NewWriter("")
 
 	id := uuid.New().NewV4()
 	md := &metricDriver{
@@ -49,7 +49,7 @@ func (m *metricDriver) Open(dsn string) (driver.Conn, error) {
 }
 
 func publishConnectionMetrics(conn *sql.DB) {
-	output := metric.NewWriter()
+	output := metric.NewWriter("")
 
 	go func() {
 		for {
