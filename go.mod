@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/go-sql-driver/mysql v1.8.1
-	github.com/justtrackio/gosoline v0.66.4-0.20261012092523-42fbf688c11c
+	github.com/justtrackio/gosoline v0.68.1-0.20261013100521-f4dec424c28c
 	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.19.2
 	github.com/stretchr/testify v1.11.1
