@@ -19,3 +19,4 @@ This package exposes sqlc-owned database APIs directly.
 
 - Query, scan, named parameter binding, and placeholder behavior are now implemented internally by sqlc
 - Downstream code should rely on sqlc-owned types and `database/sql` handles only
+- Settings-based DB constructors publish `DbConnectionCount` metrics through Gosoline's v2 metric writer when metrics are enabled
