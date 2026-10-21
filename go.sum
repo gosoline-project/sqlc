@@ -158,6 +158,8 @@ github.com/justtrackio/gosoline v0.68.4-0.20261016122400-08aaf2a5b7d1 h1:YgWEGb7
 github.com/justtrackio/gosoline v0.68.4-0.20261016122400-08aaf2a5b7d1/go.mod h1:OzijntFPElyJ/3cxJIwGLIc14toXOBoLhxtCqyUenpE=
 github.com/justtrackio/gosoline v0.68.4-0.20261019134325-8cdd08040fb4 h1:hHJyhoK2xZe8r6uAj9IzhUly+DfNSAQWy/m896XT05Q=
 github.com/justtrackio/gosoline v0.68.4-0.20261019134325-8cdd08040fb4/go.mod h1:OzijntFPElyJ/3cxJIwGLIc14toXOBoLhxtCqyUenpE=
+github.com/justtrackio/gosoline v0.68.4-0.20261021101322-e1a14ac09eab h1:mnw3Dmi2TJi4PzsEuvw89sm49aI96Cc1TjYx7D33SaA=
+github.com/justtrackio/gosoline v0.68.4-0.20261021101322-e1a14ac09eab/go.mod h1:OzijntFPElyJ/3cxJIwGLIc14toXOBoLhxtCqyUenpE=
 github.com/kisielk/sqlstruct v0.0.0-20201105191214-5f3e10d3ab46/go.mod h1:yyMNCyc/Ib3bDTKd379tNMpB/7/H5TjM2Y9QJ5THLbE=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
