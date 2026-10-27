@@ -152,6 +152,8 @@ github.com/jonboulle/clockwork v0.4.0 h1:p4Cf1aMWXnXAUh8lVfewRBx1zaTSYKrKMF2g3ST
 github.com/jonboulle/clockwork v0.4.0/go.mod h1:xgRqUGwRcjKCO1vbZUEtSLrqKoPSsUpK7fnezOII0kc=
 github.com/justtrackio/gosoline v0.68.4-0.20261022095443-a18815d97543 h1:xKO49VjlLfISZBGsBMYiOxapclfCS4WFkAEGZ/PX+Ps=
 github.com/justtrackio/gosoline v0.68.4-0.20261022095443-a18815d97543/go.mod h1:OzijntFPElyJ/3cxJIwGLIc14toXOBoLhxtCqyUenpE=
+github.com/justtrackio/gosoline v0.68.4-0.20261026102448-e669b1bf2ab6 h1:6YOPumfbMHfeSzi4WQbpZCj/AYAXAKtgdpiLPU1nyN8=
+github.com/justtrackio/gosoline v0.68.4-0.20261026102448-e669b1bf2ab6/go.mod h1:OzijntFPElyJ/3cxJIwGLIc14toXOBoLhxtCqyUenpE=
 github.com/kisielk/sqlstruct v0.0.0-20201105191214-5f3e10d3ab46/go.mod h1:yyMNCyc/Ib3bDTKd379tNMpB/7/H5TjM2Y9QJ5THLbE=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
