@@ -2,7 +2,7 @@
 
 ## Scope
 - This file applies to the `github.com/gosoline-project/sqlc` repository.
-- The module targets Go `1.26.10` or newer.
+- The module minimum is Go `1.26.10`. Use at least `1.26.10` on the Go `1.26` release line or `1.27.3` on Go `1.27`; `go.mod` enforces only the overall lower bound, not patched minimums on newer release lines.
 - The primary library package is `sqlc`.
 - `examples/` contains `package main` example programs.
 - `mocks/` contains generated mockery output and should be treated as generated code.
