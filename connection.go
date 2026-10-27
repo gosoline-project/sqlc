@@ -37,7 +37,7 @@ func newDBFromSettings(ctx context.Context, logger log.Logger, name string, sett
 		return nil, fmt.Errorf("can not run migrations: %w", err)
 	}
 
-	publishConnectionMetrics(connection.SQLDB())
+	publishConnectionMetrics(ctx, connection.SQLDB())
 
 	return connection, nil
 }
