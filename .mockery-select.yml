@@ -1,0 +1,19 @@
+all: false
+dir: '{{if matchString "^\\p{Lu}" .InterfaceName}}{{.InterfaceDir}}/mocks{{else}}{{.InterfaceDir}}{{end}}'
+filename: '{{if matchString "^\\p{Lu}" .InterfaceName}}{{.InterfaceName}}.go{{else}}zz_mockery_{{.InterfaceName}}_test.go{{end}}'
+force-file-write: true
+formatter: goimports
+generate: true
+include-auto-generated: false
+log-level: info
+structname: '{{if matchString "^\\p{Lu}" .InterfaceName}}{{.InterfaceName}}{{else}}Mock{{.InterfaceName | firstUpper}}{{end}}'
+pkgname: '{{.SrcPackageName}}'
+recursive: false
+require-template-schema-exists: true
+template: testify
+template-schema: '{{.Template}}.schema.json'
+# The go:generate directives select one local interface via MOCKERY_INCLUDE_INTERFACE_REGEX.
+packages:
+  github.com/gosoline-project/sqlc:
+    config:
+      all: false

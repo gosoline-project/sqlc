@@ -11,6 +11,10 @@ import (
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Querier$DOLLAR mockery --config .mockery-select.yml
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Client$DOLLAR mockery --config .mockery-select.yml
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Result$DOLLAR mockery --config .mockery-select.yml
+
 type (
 	clientCtxKey string
 

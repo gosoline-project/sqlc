@@ -5,6 +5,7 @@ import (
 	"database/sql"
 )
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^dbQuerier$DOLLAR mockery --config .mockery-select.yml
 type dbQuerier interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	GetContext(ctx context.Context, dest any, query string, args ...any) error
@@ -15,6 +16,7 @@ type dbQuerier interface {
 	SelectContext(ctx context.Context, dest any, query string, args ...any) error
 }
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^dbHandle$DOLLAR mockery --config .mockery-select.yml
 type dbHandle interface {
 	dbQuerier
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (dbTx, error)
@@ -22,12 +24,14 @@ type dbHandle interface {
 	SQLDB() *sql.DB
 }
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^dbTx$DOLLAR mockery --config .mockery-select.yml
 type dbTx interface {
 	dbQuerier
 	Commit() error
 	Rollback() error
 }
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^rowsScanner$DOLLAR mockery --config .mockery-select.yml
 type rowsScanner interface {
 	Close() error
 	Columns() ([]string, error)
@@ -37,6 +41,7 @@ type rowsScanner interface {
 	StructScan(dest any) error
 }
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^preparedStatement$DOLLAR mockery --config .mockery-select.yml
 type preparedStatement interface {
 	Close() error
 	ExecContext(ctx context.Context, args ...any) (sql.Result, error)

@@ -9,6 +9,7 @@ import (
 type DriverFactory func(logger log.Logger) (Driver, error)
 
 //go:generate mockery --config=.mockery.yml
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Driver$DOLLAR mockery --config .mockery-select.yml
 
 type Driver interface {
 	GetDSN(settings *Settings) string

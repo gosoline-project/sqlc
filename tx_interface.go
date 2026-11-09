@@ -5,6 +5,8 @@ import (
 	"database/sql"
 )
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Tx$DOLLAR mockery --config .mockery-select.yml
+
 // Tx represents a transaction-scoped query client.
 type Tx interface {
 	context.Context

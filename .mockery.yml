@@ -1,12 +1,12 @@
 all: false
-dir: '{{.InterfaceDir}}/mocks'
-filename: '{{.InterfaceName}}.go'
+dir: '{{if matchString "^\\p{Lu}" .InterfaceName}}{{.InterfaceDir}}/mocks{{else}}{{.InterfaceDir}}{{end}}'
+filename: '{{if matchString "^\\p{Lu}" .InterfaceName}}{{.InterfaceName}}.go{{else}}zz_mockery_{{.InterfaceName}}_test.go{{end}}'
 force-file-write: true
 formatter: goimports
 generate: true
 include-auto-generated: false
 log-level: info
-structname: '{{.InterfaceName}}'
+structname: '{{if matchString "^\\p{Lu}" .InterfaceName}}{{.InterfaceName}}{{else}}Mock{{.InterfaceName | firstUpper}}{{end}}'
 pkgname: '{{.SrcPackageName}}'
 recursive: false
 require-template-schema-exists: true
@@ -15,16 +15,7 @@ template-schema: '{{.Template}}.schema.json'
 packages:
   github.com/gosoline-project/sqlc:
     config:
-      all: false
-    interfaces:
-      Client: {}
-      Driver: {}
-      IsNullable: {}
-      LifecycleManager: {}
-      Querier: {}
-      Result: {}
-      Sqler: {}
-      Tx: {}
+      all: true
   database/sql/driver:
     config:
       dir: ./mocks/driver

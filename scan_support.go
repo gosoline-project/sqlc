@@ -13,6 +13,7 @@ var (
 	defaultMapper    = newStructMapperFunc(dbStructTag, strings.ToLower)
 )
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^scanRows$DOLLAR mockery --config .mockery-select.yml
 type scanRows interface {
 	Close() error
 	Columns() ([]string, error)
