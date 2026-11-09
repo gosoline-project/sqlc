@@ -15,4 +15,20 @@ template-schema: '{{.Template}}.schema.json'
 packages:
   github.com/gosoline-project/sqlc:
     config:
-      all: true
+      all: false
+    interfaces:
+      Client: {}
+      Driver: {}
+      IsNullable: {}
+      LifecycleManager: {}
+      Querier: {}
+      Result: {}
+      Sqler: {}
+      Tx: {}
+  database/sql/driver:
+    config:
+      dir: ./mocks/driver
+      pkgname: driver
+    interfaces:
+      Conn: {}
+      Driver: {}

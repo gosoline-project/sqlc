@@ -86,3 +86,91 @@ func (_c *Driver_GetDSN_Call) RunAndReturn(run func(settings *sqlc.Settings) str
 	_c.Call.Return(run)
 	return _c
 }
+
+// GetPlaceholder provides a mock function for the type Driver
+func (_mock *Driver) GetPlaceholder() string {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPlaceholder")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func() string); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// Driver_GetPlaceholder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPlaceholder'
+type Driver_GetPlaceholder_Call struct {
+	*mock.Call
+}
+
+// GetPlaceholder is a helper method to define mock.On call
+func (_e *Driver_Expecter) GetPlaceholder() *Driver_GetPlaceholder_Call {
+	return &Driver_GetPlaceholder_Call{Call: _e.mock.On("GetPlaceholder")}
+}
+
+func (_c *Driver_GetPlaceholder_Call) Run(run func()) *Driver_GetPlaceholder_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *Driver_GetPlaceholder_Call) Return(s string) *Driver_GetPlaceholder_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *Driver_GetPlaceholder_Call) RunAndReturn(run func() string) *Driver_GetPlaceholder_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetQuote provides a mock function for the type Driver
+func (_mock *Driver) GetQuote() string {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetQuote")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func() string); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// Driver_GetQuote_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetQuote'
+type Driver_GetQuote_Call struct {
+	*mock.Call
+}
+
+// GetQuote is a helper method to define mock.On call
+func (_e *Driver_Expecter) GetQuote() *Driver_GetQuote_Call {
+	return &Driver_GetQuote_Call{Call: _e.mock.On("GetQuote")}
+}
+
+func (_c *Driver_GetQuote_Call) Run(run func()) *Driver_GetQuote_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *Driver_GetQuote_Call) Return(s string) *Driver_GetQuote_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *Driver_GetQuote_Call) RunAndReturn(run func() string) *Driver_GetQuote_Call {
+	_c.Call.Return(run)
+	return _c
+}

@@ -10,81 +10,55 @@ import (
 	"testing"
 	"time"
 
+	driverMocks "github.com/gosoline-project/sqlc/mocks/driver"
 	"github.com/justtrackio/gosoline/pkg/appctx"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/clock"
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/justtrackio/gosoline/pkg/metric"
+	metricMocks "github.com/justtrackio/gosoline/pkg/metric/mocks"
 	"github.com/stretchr/testify/assert"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 const sqlcMetricsTestWriter = "sqlc-metrics-contract-test"
 
-type sqlcMetricRecorder struct {
-	batches chan metric.Data
-}
-
-func (r *sqlcMetricRecorder) GetPriority() int {
-	return metric.PriorityHigh
-}
-
-func (r *sqlcMetricRecorder) Write(_ context.Context, batch metric.Data) {
-	copied := make(metric.Data, len(batch))
-	for i, datum := range batch {
-		copyDatum := *datum
-		if datum.Dimensions != nil {
-			copyDatum.Dimensions = make(metric.Dimensions, len(datum.Dimensions))
-			for key, value := range datum.Dimensions {
-				copyDatum.Dimensions[key] = value
-			}
-		}
-		copied[i] = &copyDatum
-	}
-
-	r.batches <- copied
-}
-
-func (r *sqlcMetricRecorder) WriteOne(ctx context.Context, datum *metric.Datum) {
-	r.Write(ctx, metric.Data{datum})
-}
-
-type sqlcMetricsTestDriver struct {
-	openAttempts     atomic.Int32
-	firstOpen        chan struct{}
-	allowFirstOpen   chan struct{}
-	firstOpenRelease sync.Once
-}
-
-func (d *sqlcMetricsTestDriver) Open(string) (driver.Conn, error) {
-	if d.openAttempts.Add(1) == 1 {
-		close(d.firstOpen)
-		<-d.allowFirstOpen
-
-		return nil, errors.New("synthetic driver open failure")
-	}
-
-	return &sqlcMetricsTestConn{}, nil
-}
-
-type sqlcMetricsTestConn struct{}
-
-func (c *sqlcMetricsTestConn) Prepare(string) (driver.Stmt, error) {
-	return nil, driver.ErrSkip
-}
-
-func (c *sqlcMetricsTestConn) Close() error {
-	return nil
-}
-
-func (c *sqlcMetricsTestConn) Begin() (driver.Tx, error) {
-	return nil, driver.ErrSkip
-}
-
 func TestConnectionMetricsUseCanonicalCounterAndPoolGauges(t *testing.T) {
-	recorder := &sqlcMetricRecorder{batches: make(chan metric.Data, 32)}
+	batches := make(chan metric.Data, 32)
+	metricWriter := metricMocks.NewWriter(t)
+	recordBatch := func(batch metric.Data) {
+		copied := make(metric.Data, len(batch))
+		for i, datum := range batch {
+			copyDatum := *datum
+			if datum.Dimensions != nil {
+				copyDatum.Dimensions = make(metric.Dimensions, len(datum.Dimensions))
+				for key, value := range datum.Dimensions {
+					copyDatum.Dimensions[key] = value
+				}
+			}
+			copied[i] = &copyDatum
+		}
+		batches <- copied
+	}
+	metricWriter.EXPECT().
+		GetPriority().
+		Return(metric.PriorityHigh).
+		Maybe()
+	metricWriter.EXPECT().
+		Write(testifymock.Anything, testifymock.Anything).
+		RunAndReturn(func(_ context.Context, batch metric.Data) {
+			recordBatch(batch)
+		}).
+		Maybe()
+	metricWriter.EXPECT().
+		WriteOne(testifymock.Anything, testifymock.Anything).
+		RunAndReturn(func(_ context.Context, datum *metric.Datum) {
+			recordBatch(metric.Data{datum})
+		}).
+		Maybe()
 	metric.RegisterWriterFactory(sqlcMetricsTestWriter, func(context.Context, cfg.Config, log.Logger) (metric.Writer, error) {
-		return recorder, nil
+		return metricWriter, nil
 	})
 
 	ctx, cancel := context.WithCancel(appctx.WithContainer(t.Context()))
@@ -107,10 +81,24 @@ func TestConnectionMetricsUseCanonicalCounterAndPoolGauges(t *testing.T) {
 		require.NoError(t, <-daemonDone)
 	})
 
-	testDriver := &sqlcMetricsTestDriver{
-		firstOpen:      make(chan struct{}),
-		allowFirstOpen: make(chan struct{}),
-	}
+	var openAttempts atomic.Int32
+	firstOpen := make(chan struct{})
+	allowFirstOpen := make(chan struct{})
+	var firstOpenRelease sync.Once
+	testDriver := driverMocks.NewDriver(t)
+	testConn := driverMocks.NewConn(t)
+	testConn.EXPECT().Close().Return(nil)
+	openCall := testDriver.EXPECT().Open("").RunAndReturn(func(_ string) (driver.Conn, error) {
+		if openAttempts.Add(1) == 1 {
+			close(firstOpen)
+			<-allowFirstOpen
+
+			return nil, errors.New("synthetic driver open failure")
+		}
+
+		return testConn, nil
+	})
+	openCall.Times(2)
 	driverName := newMetricDriver(testDriver)
 	db, err := sql.Open(driverName, "")
 	require.NoError(t, err)
@@ -118,8 +106,8 @@ func TestConnectionMetricsUseCanonicalCounterAndPoolGauges(t *testing.T) {
 	db.SetMaxIdleConns(1)
 
 	releaseFirstOpen := func() {
-		testDriver.firstOpenRelease.Do(func() {
-			close(testDriver.allowFirstOpen)
+		firstOpenRelease.Do(func() {
+			close(allowFirstOpen)
 		})
 	}
 	dbClosed := false
@@ -135,19 +123,19 @@ func TestConnectionMetricsUseCanonicalCounterAndPoolGauges(t *testing.T) {
 		pingResult <- db.Ping()
 	}()
 	select {
-	case <-testDriver.firstOpen:
+	case <-firstOpen:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for the wrapped driver open")
 	}
 
-	firstCounter := receiveDbClientBatch(t, recorder)
+	firstCounter := receiveDbClientBatch(t, batches)
 	require.Len(t, firstCounter, 1)
 	assertConnectionCounter(t, firstCounter[0])
 	releaseFirstOpen()
 	require.Error(t, <-pingResult)
 
 	require.NoError(t, db.Ping())
-	secondCounter := receiveDbClientBatch(t, recorder)
+	secondCounter := receiveDbClientBatch(t, batches)
 	require.Len(t, secondCounter, 1)
 	assertConnectionCounter(t, secondCounter[0])
 
@@ -156,20 +144,20 @@ func TestConnectionMetricsUseCanonicalCounterAndPoolGauges(t *testing.T) {
 	poolWriter := metric.NewWriter("db.client")
 	testClock := clock.NewFakeClock()
 	publishConnectionMetricsWithInterfaces(ctx, db, testClock, poolWriter)
-	assertPoolGaugeSample(t, receiveDbClientBatch(t, recorder), 1, 0)
+	assertPoolGaugeSample(t, receiveDbClientBatch(t, batches), 1, 0)
 
 	testClock.BlockUntilTickers(1)
 	require.NoError(t, connection.Close())
 	testClock.Advance(time.Minute)
-	assertPoolGaugeSample(t, receiveDbClientBatch(t, recorder), 0, 1)
+	assertPoolGaugeSample(t, receiveDbClientBatch(t, batches), 0, 1)
 
 	require.NoError(t, db.Close())
 	dbClosed = true
 	testClock.Advance(time.Minute)
-	assertPoolGaugeSample(t, receiveDbClientBatch(t, recorder), 0, 0)
+	assertPoolGaugeSample(t, receiveDbClientBatch(t, batches), 0, 0)
 }
 
-func receiveDbClientBatch(t *testing.T, recorder *sqlcMetricRecorder) metric.Data {
+func receiveDbClientBatch(t *testing.T, batches <-chan metric.Data) metric.Data {
 	t.Helper()
 
 	timeout := time.NewTimer(5 * time.Second)
@@ -177,7 +165,7 @@ func receiveDbClientBatch(t *testing.T, recorder *sqlcMetricRecorder) metric.Dat
 
 	for {
 		select {
-		case batch := <-recorder.batches:
+		case batch := <-batches:
 			var dbClientMetrics metric.Data
 			for _, datum := range batch {
 				if datum.Namespace == "db.client" {

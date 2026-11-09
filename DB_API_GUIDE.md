@@ -19,7 +19,4 @@ This package exposes sqlc-owned database APIs directly.
 
 - Query, scan, named parameter binding, and placeholder behavior are now implemented internally by sqlc
 - Downstream code should rely on sqlc-owned types and `database/sql` handles only
-- Settings-based DB constructors publish metrics under `db.client` when metrics are enabled:
-  `connections` is a high-priority `UnitCount` Counter incremented before each wrapped driver open
-  (including failures). `connection.count` is a high-priority `UnitCountAverage` Gauge sampled
-  immediately and every minute for `connection.state=used|idle`, including zero values.
+- For SQLc database metric names, dimensions and emission behavior, see [the SQLc metric documentation](https://gosoline-project.github.io/docs/how-to/databases-sql/sqlc/).
