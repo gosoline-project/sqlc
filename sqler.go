@@ -8,8 +8,6 @@ import (
 	"github.com/justtrackio/gosoline/pkg/funk"
 )
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Sqler$DOLLAR mockery --config .mockery-select.yml
-
 type (
 	Sqler interface {
 		ToSql() (query string, params []any, err error)

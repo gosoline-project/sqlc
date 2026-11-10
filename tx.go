@@ -15,7 +15,6 @@ type tx struct {
 	tx  dbTx
 }
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^sqlTxAccessor$DOLLAR mockery --config .mockery-select.yml
 type sqlTxAccessor interface {
 	SQLTx() *sql.Tx
 }

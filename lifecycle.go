@@ -25,8 +25,6 @@ type lifecycleManager struct {
 	purger   reslife.Purger
 }
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^LifecycleManager$DOLLAR mockery --config .mockery-select.yml
-
 type LifecycleManager interface {
 	reslife.LifeCycleer
 	reslife.Registerer

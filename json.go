@@ -17,8 +17,6 @@ var (
 	NonNullableBehaviour               = NonNullable{}
 )
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^IsNullable$DOLLAR mockery --config .mockery-select.yml
-
 type (
 	Nullable    struct{}
 	NonNullable struct{}
