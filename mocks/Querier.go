@@ -332,8 +332,8 @@ func (_c *Querier_Prepare_Call) Run(run func(ctx context.Context, query string))
 	return _c
 }
 
-func (_c *Querier_Prepare_Call) Return(v *sqlc.Stmt, err error) *Querier_Prepare_Call {
-	_c.Call.Return(v, err)
+func (_c *Querier_Prepare_Call) Return(stmt *sqlc.Stmt, err error) *Querier_Prepare_Call {
+	_c.Call.Return(stmt, err)
 	return _c
 }
 
@@ -415,8 +415,8 @@ func (_c *Querier_Query_Call) Run(run func(ctx context.Context, query string, ar
 	return _c
 }
 
-func (_c *Querier_Query_Call) Return(v *sqlc.Rows, err error) *Querier_Query_Call {
-	_c.Call.Return(v, err)
+func (_c *Querier_Query_Call) Return(rows *sqlc.Rows, err error) *Querier_Query_Call {
+	_c.Call.Return(rows, err)
 	return _c
 }
 

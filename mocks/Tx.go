@@ -520,12 +520,58 @@ func (_c *Tx_Prepare_Call) Run(run func(ctx context.Context, query string)) *Tx_
 	return _c
 }
 
-func (_c *Tx_Prepare_Call) Return(v *sqlc.Stmt, err error) *Tx_Prepare_Call {
-	_c.Call.Return(v, err)
+func (_c *Tx_Prepare_Call) Return(stmt *sqlc.Stmt, err error) *Tx_Prepare_Call {
+	_c.Call.Return(stmt, err)
 	return _c
 }
 
 func (_c *Tx_Prepare_Call) RunAndReturn(run func(ctx context.Context, query string) (*sqlc.Stmt, error)) *Tx_Prepare_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Q provides a mock function for the type Tx
+func (_mock *Tx) Q() *sqlc.QueryBuilder {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Q")
+	}
+
+	var r0 *sqlc.QueryBuilder
+	if returnFunc, ok := ret.Get(0).(func() *sqlc.QueryBuilder); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*sqlc.QueryBuilder)
+		}
+	}
+	return r0
+}
+
+// Tx_Q_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Q'
+type Tx_Q_Call struct {
+	*mock.Call
+}
+
+// Q is a helper method to define mock.On call
+func (_e *Tx_Expecter) Q() *Tx_Q_Call {
+	return &Tx_Q_Call{Call: _e.mock.On("Q")}
+}
+
+func (_c *Tx_Q_Call) Run(run func()) *Tx_Q_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *Tx_Q_Call) Return(queryBuilder *sqlc.QueryBuilder) *Tx_Q_Call {
+	_c.Call.Return(queryBuilder)
+	return _c
+}
+
+func (_c *Tx_Q_Call) RunAndReturn(run func() *sqlc.QueryBuilder) *Tx_Q_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -603,8 +649,8 @@ func (_c *Tx_Query_Call) Run(run func(ctx context.Context, query string, args ..
 	return _c
 }
 
-func (_c *Tx_Query_Call) Return(v *sqlc.Rows, err error) *Tx_Query_Call {
-	_c.Call.Return(v, err)
+func (_c *Tx_Query_Call) Return(rows *sqlc.Rows, err error) *Tx_Query_Call {
+	_c.Call.Return(rows, err)
 	return _c
 }
 
@@ -727,6 +773,52 @@ func (_c *Tx_Rollback_Call) Return(err error) *Tx_Rollback_Call {
 }
 
 func (_c *Tx_Rollback_Call) RunAndReturn(run func() error) *Tx_Rollback_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SQLTx provides a mock function for the type Tx
+func (_mock *Tx) SQLTx() *sql.Tx {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for SQLTx")
+	}
+
+	var r0 *sql.Tx
+	if returnFunc, ok := ret.Get(0).(func() *sql.Tx); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*sql.Tx)
+		}
+	}
+	return r0
+}
+
+// Tx_SQLTx_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SQLTx'
+type Tx_SQLTx_Call struct {
+	*mock.Call
+}
+
+// SQLTx is a helper method to define mock.On call
+func (_e *Tx_Expecter) SQLTx() *Tx_SQLTx_Call {
+	return &Tx_SQLTx_Call{Call: _e.mock.On("SQLTx")}
+}
+
+func (_c *Tx_SQLTx_Call) Run(run func()) *Tx_SQLTx_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *Tx_SQLTx_Call) Return(tx *sql.Tx) *Tx_SQLTx_Call {
+	_c.Call.Return(tx)
+	return _c
+}
+
+func (_c *Tx_SQLTx_Call) RunAndReturn(run func() *sql.Tx) *Tx_SQLTx_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -858,6 +950,59 @@ func (_c *Tx_Value_Call) Return(v any) *Tx_Value_Call {
 }
 
 func (_c *Tx_Value_Call) RunAndReturn(run func(key any) any) *Tx_Value_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WithContext provides a mock function for the type Tx
+func (_mock *Tx) WithContext(ctx context.Context) sqlc.Tx {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WithContext")
+	}
+
+	var r0 sqlc.Tx
+	if returnFunc, ok := ret.Get(0).(func(context.Context) sqlc.Tx); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(sqlc.Tx)
+		}
+	}
+	return r0
+}
+
+// Tx_WithContext_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WithContext'
+type Tx_WithContext_Call struct {
+	*mock.Call
+}
+
+// WithContext is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Tx_Expecter) WithContext(ctx interface{}) *Tx_WithContext_Call {
+	return &Tx_WithContext_Call{Call: _e.mock.On("WithContext", ctx)}
+}
+
+func (_c *Tx_WithContext_Call) Run(run func(ctx context.Context)) *Tx_WithContext_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *Tx_WithContext_Call) Return(tx sqlc.Tx) *Tx_WithContext_Call {
+	_c.Call.Return(tx)
+	return _c
+}
+
+func (_c *Tx_WithContext_Call) RunAndReturn(run func(ctx context.Context) sqlc.Tx) *Tx_WithContext_Call {
 	_c.Call.Return(run)
 	return _c
 }

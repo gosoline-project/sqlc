@@ -39,6 +39,83 @@ func (_m *Client) EXPECT() *Client_Expecter {
 	return &Client_Expecter{mock: &_m.Mock}
 }
 
+// BeginTx provides a mock function for the type Client
+func (_mock *Client) BeginTx(ctx context.Context, ops ...*sql.TxOptions) (sqlc.Tx, error) {
+	var tmpRet mock.Arguments
+	if len(ops) > 0 {
+		tmpRet = _mock.Called(ctx, ops)
+	} else {
+		tmpRet = _mock.Called(ctx)
+	}
+	ret := tmpRet
+
+	if len(ret) == 0 {
+		panic("no return value specified for BeginTx")
+	}
+
+	var r0 sqlc.Tx
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ...*sql.TxOptions) (sqlc.Tx, error)); ok {
+		return returnFunc(ctx, ops...)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ...*sql.TxOptions) sqlc.Tx); ok {
+		r0 = returnFunc(ctx, ops...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(sqlc.Tx)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, ...*sql.TxOptions) error); ok {
+		r1 = returnFunc(ctx, ops...)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// Client_BeginTx_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BeginTx'
+type Client_BeginTx_Call struct {
+	*mock.Call
+}
+
+// BeginTx is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ops ...*sql.TxOptions
+func (_e *Client_Expecter) BeginTx(ctx interface{}, ops ...interface{}) *Client_BeginTx_Call {
+	return &Client_BeginTx_Call{Call: _e.mock.On("BeginTx",
+		append([]interface{}{ctx}, ops...)...)}
+}
+
+func (_c *Client_BeginTx_Call) Run(run func(ctx context.Context, ops ...*sql.TxOptions)) *Client_BeginTx_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []*sql.TxOptions
+		var variadicArgs []*sql.TxOptions
+		if len(args) > 1 {
+			variadicArgs = args[1].([]*sql.TxOptions)
+		}
+		arg1 = variadicArgs
+		run(
+			arg0,
+			arg1...,
+		)
+	})
+	return _c
+}
+
+func (_c *Client_BeginTx_Call) Return(tx sqlc.Tx, err error) *Client_BeginTx_Call {
+	_c.Call.Return(tx, err)
+	return _c
+}
+
+func (_c *Client_BeginTx_Call) RunAndReturn(run func(ctx context.Context, ops ...*sql.TxOptions) (sqlc.Tx, error)) *Client_BeginTx_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Close provides a mock function for the type Client
 func (_mock *Client) Close() error {
 	ret := _mock.Called()
@@ -376,8 +453,8 @@ func (_c *Client_Prepare_Call) Run(run func(ctx context.Context, query string)) 
 	return _c
 }
 
-func (_c *Client_Prepare_Call) Return(v *sqlc.Stmt, err error) *Client_Prepare_Call {
-	_c.Call.Return(v, err)
+func (_c *Client_Prepare_Call) Return(stmt *sqlc.Stmt, err error) *Client_Prepare_Call {
+	_c.Call.Return(stmt, err)
 	return _c
 }
 
@@ -505,8 +582,8 @@ func (_c *Client_Query_Call) Run(run func(ctx context.Context, query string, arg
 	return _c
 }
 
-func (_c *Client_Query_Call) Return(v *sqlc.Rows, err error) *Client_Query_Call {
-	_c.Call.Return(v, err)
+func (_c *Client_Query_Call) Return(rows *sqlc.Rows, err error) *Client_Query_Call {
+	_c.Call.Return(rows, err)
 	return _c
 }
 
@@ -663,6 +740,78 @@ func (_c *Client_Select_Call) Return(err error) *Client_Select_Call {
 }
 
 func (_c *Client_Select_Call) RunAndReturn(run func(ctx context.Context, dest any, query string, args ...any) error) *Client_Select_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WithTx provides a mock function for the type Client
+func (_mock *Client) WithTx(ctx context.Context, fn func(cttx sqlc.Tx) error, ops ...*sql.TxOptions) error {
+	var tmpRet mock.Arguments
+	if len(ops) > 0 {
+		tmpRet = _mock.Called(ctx, fn, ops)
+	} else {
+		tmpRet = _mock.Called(ctx, fn)
+	}
+	ret := tmpRet
+
+	if len(ret) == 0 {
+		panic("no return value specified for WithTx")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, func(cttx sqlc.Tx) error, ...*sql.TxOptions) error); ok {
+		r0 = returnFunc(ctx, fn, ops...)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// Client_WithTx_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WithTx'
+type Client_WithTx_Call struct {
+	*mock.Call
+}
+
+// WithTx is a helper method to define mock.On call
+//   - ctx context.Context
+//   - fn func(cttx sqlc.Tx) error
+//   - ops ...*sql.TxOptions
+func (_e *Client_Expecter) WithTx(ctx interface{}, fn interface{}, ops ...interface{}) *Client_WithTx_Call {
+	return &Client_WithTx_Call{Call: _e.mock.On("WithTx",
+		append([]interface{}{ctx, fn}, ops...)...)}
+}
+
+func (_c *Client_WithTx_Call) Run(run func(ctx context.Context, fn func(cttx sqlc.Tx) error, ops ...*sql.TxOptions)) *Client_WithTx_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 func(cttx sqlc.Tx) error
+		if args[1] != nil {
+			arg1 = args[1].(func(cttx sqlc.Tx) error)
+		}
+		var arg2 []*sql.TxOptions
+		var variadicArgs []*sql.TxOptions
+		if len(args) > 2 {
+			variadicArgs = args[2].([]*sql.TxOptions)
+		}
+		arg2 = variadicArgs
+		run(
+			arg0,
+			arg1,
+			arg2...,
+		)
+	})
+	return _c
+}
+
+func (_c *Client_WithTx_Call) Return(err error) *Client_WithTx_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *Client_WithTx_Call) RunAndReturn(run func(ctx context.Context, fn func(cttx sqlc.Tx) error, ops ...*sql.TxOptions) error) *Client_WithTx_Call {
 	_c.Call.Return(run)
 	return _c
 }

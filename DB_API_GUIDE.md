@@ -19,3 +19,4 @@ This package exposes sqlc-owned database APIs directly.
 
 - Query, scan, named parameter binding, and placeholder behavior are now implemented internally by sqlc
 - Downstream code should rely on sqlc-owned types and `database/sql` handles only
+- For SQLc database metric names, dimensions and emission behavior, see [the SQLc metric documentation](https://gosoline-project.github.io/docs/how-to/databases-sql/sqlc/).
