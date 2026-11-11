@@ -68,23 +68,18 @@ func publishConnectionMetricsWithInterfaces(ctx context.Context, conn *sql.DB, c
 		ticker := clk.NewTicker(time.Minute)
 		defer ticker.Stop()
 
-		write := func() {
+		for {
 			stats := conn.Stats()
 
-			// The total number of open connections is the sum of the states, so it is not emitted.
 			writer.Write(ctx, metric.Data{
 				connectionCountDatum(connectionStateUsed, stats.InUse),
 				connectionCountDatum(connectionStateIdle, stats.Idle),
 			})
-		}
 
-		write()
-		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.Chan():
-				write()
 			}
 		}
 	}()

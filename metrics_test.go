@@ -1,15 +1,17 @@
-package sqlc
+package sqlc_test
 
 import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"errors"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gosoline-project/sqlc"
+	sqlcMocks "github.com/gosoline-project/sqlc/mocks"
 	driverMocks "github.com/gosoline-project/sqlc/mocks/driver"
 	"github.com/justtrackio/gosoline/pkg/appctx"
 	"github.com/justtrackio/gosoline/pkg/cfg"
@@ -17,46 +19,56 @@ import (
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/justtrackio/gosoline/pkg/metric"
 	metricMocks "github.com/justtrackio/gosoline/pkg/metric/mocks"
-	"github.com/stretchr/testify/assert"
-	testifymock "github.com/stretchr/testify/mock"
+	"github.com/justtrackio/gosoline/pkg/test/matcher"
+	"github.com/justtrackio/gosoline/pkg/uuid"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 const sqlcMetricsTestWriter = "sqlc-metrics-contract-test"
 
+type metricDBConstructorResult struct {
+	db  *sqlc.DB
+	err error
+}
+
 func TestConnectionMetricsUseCanonicalCounterAndPoolGauges(t *testing.T) {
-	batches := make(chan metric.Data, 32)
+	metricWrites := make(chan struct{}, 6)
 	metricWriter := metricMocks.NewWriter(t)
-	recordBatch := func(batch metric.Data) {
-		copied := make(metric.Data, len(batch))
-		for i, datum := range batch {
-			copyDatum := *datum
-			if datum.Dimensions != nil {
-				copyDatum.Dimensions = make(metric.Dimensions, len(datum.Dimensions))
-				for key, value := range datum.Dimensions {
-					copyDatum.Dimensions[key] = value
-				}
-			}
-			copied[i] = &copyDatum
-		}
-		batches <- copied
-	}
+	notifyMetricWrite := metricWriteNotifier(metricWrites)
+
 	metricWriter.EXPECT().
 		GetPriority().
 		Return(metric.PriorityHigh).
 		Maybe()
 	metricWriter.EXPECT().
-		Write(testifymock.Anything, testifymock.Anything).
-		RunAndReturn(func(_ context.Context, batch metric.Data) {
-			recordBatch(batch)
-		}).
+		Write(matcher.Context, mock.MatchedBy(matchesNonDbClientBatch)).
 		Maybe()
 	metricWriter.EXPECT().
-		WriteOne(testifymock.Anything, testifymock.Anything).
-		RunAndReturn(func(_ context.Context, datum *metric.Datum) {
-			recordBatch(metric.Data{datum})
-		}).
-		Maybe()
+		Write(matcher.Context, mock.MatchedBy(matchesConnectionCounterBatch)).
+		Run(notifyMetricWrite).
+		Once()
+	metricWriter.EXPECT().
+		Write(matcher.Context, mock.MatchedBy(matchesConnectionCounterBatch)).
+		Run(notifyMetricWrite).
+		Once()
+	for _, sample := range []struct {
+		used float64
+		idle float64
+	}{
+		{used: 0, idle: 1},
+		{used: 1, idle: 0},
+		{used: 0, idle: 1},
+		{used: 0, idle: 0},
+	} {
+		metricWriter.EXPECT().
+			Write(matcher.Context, mock.MatchedBy(func(batch metric.Data) bool {
+				return matchesConnectionPoolBatch(batch, sample.used, sample.idle)
+			})).
+			Run(notifyMetricWrite).
+			Once()
+	}
+
 	metric.RegisterWriterFactory(sqlcMetricsTestWriter, func(context.Context, cfg.Config, log.Logger) (metric.Writer, error) {
 		return metricWriter, nil
 	})
@@ -72,141 +84,267 @@ func TestConnectionMetricsUseCanonicalCounterAndPoolGauges(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, module)
 
+	originalClockProvider := clock.Provider
+	t.Cleanup(func() {
+		clock.WithProvider(originalClockProvider)
+	})
+	testClock := clock.NewFakeClock()
+	clock.WithProvider(testClock)
+
 	daemonDone := make(chan error, 1)
 	go func() {
+		defer close(daemonDone)
 		daemonDone <- module.Run(ctx)
 	}()
 	t.Cleanup(func() {
 		cancel()
-		require.NoError(t, <-daemonDone)
+		select {
+		case err, ok := <-daemonDone:
+			if !ok {
+				t.Error("metric daemon stopped without returning")
+
+				return
+			}
+
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for metric daemon shutdown")
+		}
 	})
+
+	driverName := "sqlc-metrics-contract-" + uuid.New().NewV4()
+	dsn := "sqlc-metrics-contract-dsn"
+	settings := &sqlc.Settings{
+		Driver:             driverName,
+		MaxOpenConnections: 1,
+		MaxIdleConnections: 1,
+	}
+
+	settingsDriver := sqlcMocks.NewDriver(t)
+	settingsDriver.EXPECT().GetDSN(settings).Return(dsn).Once()
+	sqlc.AddDriverFactory(driverName, func(log.Logger) (sqlc.Driver, error) {
+		return settingsDriver, nil
+	})
+
+	sqlDriver := driverMocks.NewDriver(t)
+	driverConnection := driverMocks.NewConn(t)
+	driverConnection.EXPECT().Close().Return(nil).Once()
 
 	var openAttempts atomic.Int32
 	firstOpen := make(chan struct{})
 	allowFirstOpen := make(chan struct{})
 	var firstOpenRelease sync.Once
-	testDriver := driverMocks.NewDriver(t)
-	testConn := driverMocks.NewConn(t)
-	testConn.EXPECT().Close().Return(nil)
-	openCall := testDriver.EXPECT().Open("").RunAndReturn(func(_ string) (driver.Conn, error) {
-		if openAttempts.Add(1) == 1 {
-			close(firstOpen)
-			<-allowFirstOpen
-
-			return nil, errors.New("synthetic driver open failure")
-		}
-
-		return testConn, nil
-	})
-	openCall.Times(2)
-	driverName := newMetricDriver(testDriver)
-	db, err := sql.Open(driverName, "")
-	require.NoError(t, err)
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
 	releaseFirstOpen := func() {
 		firstOpenRelease.Do(func() {
 			close(allowFirstOpen)
 		})
 	}
-	dbClosed := false
+	openCall := sqlDriver.EXPECT().Open(dsn).RunAndReturn(func(string) (driver.Conn, error) {
+		if openAttempts.Add(1) == 1 {
+			close(firstOpen)
+			<-allowFirstOpen
+
+			return nil, driver.ErrBadConn
+		}
+
+		return driverConnection, nil
+	})
+	openCall.Times(2)
+	sql.Register(driverName, sqlDriver)
+
+	constructorResults := make(chan metricDBConstructorResult, 1)
+	var (
+		db                        *sqlc.DB
+		constructorStarted        bool
+		constructorResultReceived bool
+		dbClosed                  bool
+	)
 	t.Cleanup(func() {
 		releaseFirstOpen()
-		if !dbClosed {
-			require.NoError(t, db.Close())
-		}
+		db, constructorResultReceived = cleanupMetricDB(
+			t,
+			constructorStarted,
+			constructorResultReceived,
+			constructorResults,
+			db,
+			dbClosed,
+		)
 	})
 
-	pingResult := make(chan error, 1)
+	constructorStarted = true
 	go func() {
-		pingResult <- db.Ping()
+		defer close(constructorResults)
+		db, err := sqlc.NewDBFromSettings(ctx, log.NewCliLogger(), driverName, settings)
+		constructorResults <- metricDBConstructorResult{db: db, err: err}
 	}()
+
 	select {
 	case <-firstOpen:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for the wrapped driver open")
+		t.Fatal("timed out waiting for the public constructor to open the driver")
 	}
-
-	firstCounter := receiveDbClientBatch(t, batches)
-	require.Len(t, firstCounter, 1)
-	assertConnectionCounter(t, firstCounter[0])
+	waitForMetricWrite(t, metricWrites)
 	releaseFirstOpen()
-	require.Error(t, <-pingResult)
 
-	require.NoError(t, db.Ping())
-	secondCounter := receiveDbClientBatch(t, batches)
-	require.Len(t, secondCounter, 1)
-	assertConnectionCounter(t, secondCounter[0])
+	result, hasResult, completed := waitForDBConstructorResult(constructorResults)
+	constructorResultReceived = completed
+	if !completed {
+		t.Fatal("timed out waiting for public database constructor")
+	}
+	if !hasResult {
+		t.Fatal("public database constructor stopped without returning")
+	}
+	db = result.db
+	require.NoError(t, result.err)
+	require.NotNil(t, db)
+	require.Equal(t, int32(2), openAttempts.Load())
+	waitForMetricWrite(t, metricWrites)
 
-	connection, err := db.Conn(ctx)
+	waitForMetricWrite(t, metricWrites)
+
+	sqlConnection, err := db.SQLDB().Conn(ctx)
 	require.NoError(t, err)
-	poolWriter := metric.NewWriter("db.client")
-	testClock := clock.NewFakeClock()
-	publishConnectionMetricsWithInterfaces(ctx, db, testClock, poolWriter)
-	assertPoolGaugeSample(t, receiveDbClientBatch(t, batches), 1, 0)
-
-	testClock.BlockUntilTickers(1)
-	require.NoError(t, connection.Close())
 	testClock.Advance(time.Minute)
-	assertPoolGaugeSample(t, receiveDbClientBatch(t, batches), 0, 1)
+	waitForMetricWrite(t, metricWrites)
+
+	require.NoError(t, sqlConnection.Close())
+	testClock.Advance(time.Minute)
+	waitForMetricWrite(t, metricWrites)
 
 	require.NoError(t, db.Close())
 	dbClosed = true
 	testClock.Advance(time.Minute)
-	assertPoolGaugeSample(t, receiveDbClientBatch(t, batches), 0, 0)
+	waitForMetricWrite(t, metricWrites)
 }
 
-func receiveDbClientBatch(t *testing.T, batches <-chan metric.Data) metric.Data {
-	t.Helper()
-
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
-
-	for {
-		select {
-		case batch := <-batches:
-			var dbClientMetrics metric.Data
-			for _, datum := range batch {
-				if datum.Namespace == "db.client" {
-					dbClientMetrics = append(dbClientMetrics, datum)
-				}
-			}
-			if len(dbClientMetrics) > 0 {
-				return dbClientMetrics
-			}
-		case <-timeout.C:
-			t.Fatal("timed out waiting for db.client metrics")
+func matchesNonDbClientBatch(batch metric.Data) bool {
+	for _, datum := range batch {
+		if datum == nil || datum.Namespace == "db.client" {
+			return false
 		}
 	}
+
+	return true
 }
 
-func assertConnectionCounter(t *testing.T, datum *metric.Datum) {
-	t.Helper()
+func matchesConnectionCounterBatch(batch metric.Data) bool {
+	counterFound := false
 
-	assert.Equal(t, "db.client", datum.Namespace)
-	assert.Equal(t, "connections", datum.MetricName)
-	assert.Equal(t, metric.PriorityHigh, datum.Priority)
-	assert.Equal(t, metric.UnitCount, datum.Unit)
-	assert.Equal(t, metric.KindCounter.Build(), datum.Kind)
-	assert.Empty(t, datum.Dimensions)
-	assert.Equal(t, float64(1), datum.Value)
-}
-
-func assertPoolGaugeSample(t *testing.T, batch metric.Data, used, idle float64) {
-	t.Helper()
-	require.Len(t, batch, 2)
-
-	values := make(map[string]float64, 2)
 	for _, datum := range batch {
-		assert.Equal(t, "db.client", datum.Namespace)
-		assert.Equal(t, "connection.count", datum.MetricName)
-		assert.Equal(t, metric.PriorityHigh, datum.Priority)
-		assert.Equal(t, metric.UnitCountAverage, datum.Unit)
-		assert.Equal(t, metric.KindGauge.Build(), datum.Kind)
-		require.Len(t, datum.Dimensions, 1)
-		values[datum.Dimensions["connection.state"]] = datum.Value
+		if datum == nil {
+			return false
+		}
+		if datum.Namespace != "db.client" {
+			continue
+		}
+		if counterFound ||
+			datum.MetricName != "connections" ||
+			!reflect.DeepEqual(datum.Kind, metric.KindCounter.Build()) ||
+			datum.Unit != metric.UnitCount ||
+			datum.Priority != metric.PriorityHigh ||
+			datum.Value != 1 ||
+			len(datum.Dimensions) != 0 {
+			return false
+		}
+
+		counterFound = true
 	}
 
-	assert.Equal(t, map[string]float64{"used": used, "idle": idle}, values)
+	return counterFound
+}
+
+func matchesConnectionPoolBatch(batch metric.Data, used, idle float64) bool {
+	values := make(map[string]float64, 2)
+	dbClientMetrics := 0
+
+	for _, datum := range batch {
+		if datum == nil {
+			return false
+		}
+		if datum.Namespace != "db.client" {
+			continue
+		}
+		dbClientMetrics++
+
+		state, ok := connectionPoolMetricState(datum)
+		if !ok {
+			return false
+		}
+		if _, found := values[state]; found {
+			return false
+		}
+
+		values[state] = datum.Value
+	}
+
+	return dbClientMetrics == 2 && values["used"] == used && values["idle"] == idle
+}
+
+func connectionPoolMetricState(datum *metric.Datum) (string, bool) {
+	if datum == nil ||
+		datum.Namespace != "db.client" ||
+		datum.MetricName != "connection.count" ||
+		!reflect.DeepEqual(datum.Kind, metric.KindGauge.Build()) ||
+		datum.Unit != metric.UnitCountAverage ||
+		datum.Priority != metric.PriorityHigh ||
+		len(datum.Dimensions) != 1 {
+		return "", false
+	}
+
+	state, ok := datum.Dimensions["connection.state"]
+
+	return state, ok && (state == "used" || state == "idle")
+}
+
+func metricWriteNotifier(metricWrites chan<- struct{}) func(context.Context, metric.Data) {
+	return func(_ context.Context, _ metric.Data) {
+		metricWrites <- struct{}{}
+	}
+}
+
+func waitForMetricWrite(t *testing.T, metricWrites <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-metricWrites:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for db.client metric delivery")
+	}
+}
+
+func waitForDBConstructorResult(results <-chan metricDBConstructorResult) (metricDBConstructorResult, bool, bool) {
+	select {
+	case result, ok := <-results:
+		return result, ok, true
+	case <-time.After(5 * time.Second):
+		return metricDBConstructorResult{}, false, false
+	}
+}
+
+func cleanupMetricDB(
+	t *testing.T,
+	constructorStarted bool,
+	constructorResultReceived bool,
+	constructorResults <-chan metricDBConstructorResult,
+	db *sqlc.DB,
+	dbClosed bool,
+) (*sqlc.DB, bool) {
+	if constructorStarted && !constructorResultReceived {
+		result, hasResult, completed := waitForDBConstructorResult(constructorResults)
+		constructorResultReceived = completed
+		switch {
+		case !completed:
+			t.Error("timed out waiting for public database constructor during cleanup")
+		case !hasResult:
+			t.Error("public database constructor stopped without returning")
+		default:
+			db = result.db
+		}
+	}
+
+	if db != nil && !dbClosed {
+		require.NoError(t, db.Close())
+	}
+
+	return db, constructorResultReceived
 }

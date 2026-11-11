@@ -8,8 +8,6 @@ import (
 
 type DriverFactory func(logger log.Logger) (Driver, error)
 
-//go:generate mockery --config=.mockery.yml
-
 type Driver interface {
 	GetDSN(settings *Settings) string
 	GetPlaceholder() string
