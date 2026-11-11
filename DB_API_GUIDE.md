@@ -9,7 +9,6 @@ This package exposes sqlc-owned database APIs directly.
 - Use `NewClientWithDB(logger, sqlc.WrapDB(db, driverName), executor, qbConfig)` when starting from `*sql.DB`
 - Use `tx.SQLTx()` for direct transaction access
 - Use `stmt.QueryContext(...)` for prepared queries
-- Use `PublishConnectionMetricsWithInterfaces(ctx, stats, clock, writer)` with a `DBStatsProvider` to supply explicit dependencies; `*sql.DB` already implements that interface. Cancel the context to stop sampling.
 
 ## Direct Handle Access
 

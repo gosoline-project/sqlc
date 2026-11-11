@@ -42,14 +42,20 @@ func newMetricDriver(driver driver.Driver) string {
 	mw := metric.NewWriter(metricNamespace)
 
 	id := uuid.New().NewV4()
-	md := &metricDriver{
-		Driver:       driver,
-		metricWriter: mw,
-	}
+	md := NewMetricDriverWithInterfaces(driver, mw)
 
 	sql.Register(id, md)
 
 	return id
+}
+
+// NewMetricDriverWithInterfaces creates an instrumented driver with explicit dependencies.
+// It is exposed for isolated tests; database constructors add instrumentation automatically.
+func NewMetricDriverWithInterfaces(wrapped driver.Driver, writer metric.Writer) driver.Driver {
+	return &metricDriver{
+		Driver:       wrapped,
+		metricWriter: writer,
+	}
 }
 
 func (m *metricDriver) Open(dsn string) (driver.Conn, error) {
@@ -68,8 +74,10 @@ func publishConnectionMetrics(ctx context.Context, conn *sql.DB) {
 	PublishConnectionMetricsWithInterfaces(ctx, conn, clock.Provider, metric.NewWriter(metricNamespace))
 }
 
-// PublishConnectionMetricsWithInterfaces samples pool statistics immediately and
-// once per minute until ctx is canceled. The writer must use the db.client namespace.
+// PublishConnectionMetricsWithInterfaces exposes the pool publisher for isolated tests.
+// Database constructors start it automatically; applications should not call it directly.
+// It samples immediately and once per minute until ctx is canceled.
+// The writer must use the db.client namespace.
 func PublishConnectionMetricsWithInterfaces(ctx context.Context, conn DBStatsProvider, clk clock.Clock, writer metric.Writer) {
 	go func() {
 		ticker := clk.NewTicker(time.Minute)
