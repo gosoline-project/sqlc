@@ -27,6 +27,11 @@ func init() {
 	metric.RegisterHelp(metricNamespace, metricNameDbConnections, "database connections opened since the process started")
 }
 
+// DBStatsProvider provides database connection pool statistics.
+type DBStatsProvider interface {
+	Stats() sql.DBStats
+}
+
 type metricDriver struct {
 	driver.Driver
 
@@ -60,10 +65,12 @@ func (m *metricDriver) Open(dsn string) (driver.Conn, error) {
 }
 
 func publishConnectionMetrics(ctx context.Context, conn *sql.DB) {
-	publishConnectionMetricsWithInterfaces(ctx, conn, clock.Provider, metric.NewWriter(metricNamespace))
+	PublishConnectionMetricsWithInterfaces(ctx, conn, clock.Provider, metric.NewWriter(metricNamespace))
 }
 
-func publishConnectionMetricsWithInterfaces(ctx context.Context, conn *sql.DB, clk clock.Clock, writer metric.Writer) {
+// PublishConnectionMetricsWithInterfaces samples pool statistics immediately and
+// once per minute until ctx is canceled. The writer must use the db.client namespace.
+func PublishConnectionMetricsWithInterfaces(ctx context.Context, conn DBStatsProvider, clk clock.Clock, writer metric.Writer) {
 	go func() {
 		ticker := clk.NewTicker(time.Minute)
 		defer ticker.Stop()
