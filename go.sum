@@ -156,8 +156,8 @@ github.com/joeshaw/multierror v0.0.0-20140124173710-69b34d4ec901 h1:rp+c0RAYOWj8
 github.com/joeshaw/multierror v0.0.0-20140124173710-69b34d4ec901/go.mod h1:Z86h9688Y0wesXCyonoVr47MasHilkuLMqGhRZ4Hpak=
 github.com/jonboulle/clockwork v0.4.0 h1:p4Cf1aMWXnXAUh8lVfewRBx1zaTSYKrKMF2g3ST4RZ4=
 github.com/jonboulle/clockwork v0.4.0/go.mod h1:xgRqUGwRcjKCO1vbZUEtSLrqKoPSsUpK7fnezOII0kc=
-github.com/justtrackio/gosoline v0.69.4-0.20261119150327-6e9683b70da1 h1:iqPPB783D7iamUYPZfXq+jiyQG7O8Mve7Y83piA+MMA=
-github.com/justtrackio/gosoline v0.69.4-0.20261119150327-6e9683b70da1/go.mod h1:aXWYIydsgLVsiB8gekVUJPOBXXdxpnmgNJF1PNrWgpg=
+github.com/justtrackio/gosoline v0.69.4-0.20261119192118-ea1ab1cd583b h1:/M9zL6rapxKFC6o1r7e+DJMW2xc5DfY3FtQ90kTFpGg=
+github.com/justtrackio/gosoline v0.69.4-0.20261119192118-ea1ab1cd583b/go.mod h1:aXWYIydsgLVsiB8gekVUJPOBXXdxpnmgNJF1PNrWgpg=
 github.com/kisielk/sqlstruct v0.0.0-20201105191214-5f3e10d3ab46/go.mod h1:yyMNCyc/Ib3bDTKd379tNMpB/7/H5TjM2Y9QJ5THLbE=
 github.com/klauspost/compress v1.20.4 h1:dD0v/bvxtjCBqQu6sx1TNWkalEY5lNTIe+HY9w8TeNI=
 github.com/klauspost/compress v1.20.4/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
